@@ -1,0 +1,232 @@
+{
+    "description": "OSINT Research Platform - Evaluation Dataset v1",
+    "version": "1.0",
+    "created": "2026-03-30",
+    "notes": "Each test has a natural language query, the expected tool selection, expected server routing, and expected key parameters. Tool selection accuracy is the primary metric.",
+    "tests": [
+        {
+            "id": 1,
+            "query": "Find all social media accounts for john_doe",
+            "expected_tool": "username_search",
+            "expected_server": "local",
+            "expected_params": {
+                "username": "john_doe"
+            },
+            "category": "username",
+            "notes": "Basic username search"
+        },
+        {
+            "id": 2,
+            "query": "Search for username cryptoking123 across platforms",
+            "expected_tool": "username_search",
+            "expected_server": "local",
+            "expected_params": {
+                "username": "cryptoking123"
+            },
+            "category": "username",
+            "notes": "Explicit username mention"
+        },
+        {
+            "id": 3,
+            "query": "Who owns github.com?",
+            "expected_tool": "whois",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "domainName": "github.com"
+            },
+            "category": "domain",
+            "notes": "Domain ownership query"
+        },
+        {
+            "id": 4,
+            "query": "Show me historical WHOIS records for twitter.com",
+            "expected_tool": "whois_history",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "domainName": "twitter.com"
+            },
+            "category": "domain",
+            "notes": "Historical WHOIS data"
+        },
+        {
+            "id": 5,
+            "query": "Find all domains registered by Google LLC",
+            "expected_tool": "reverse_whois",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "searchTerm": "Google LLC"
+            },
+            "category": "domain",
+            "notes": "Reverse WHOIS by registrant"
+        },
+        {
+            "id": 6,
+            "query": "What are the DNS records for netflix.com?",
+            "expected_tool": "dns_lookup",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "domainName": "netflix.com"
+            },
+            "category": "dns",
+            "notes": "Standard DNS lookup"
+        },
+        {
+            "id": 7,
+            "query": "Show DNS history for reddit.com",
+            "expected_tool": "dns_history",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "domainName": "reddit.com"
+            },
+            "category": "dns",
+            "notes": "Historical DNS records"
+        },
+        {
+            "id": 8,
+            "query": "What domains are hosted on IP 142.250.80.46?",
+            "expected_tool": "reverse_ip",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "ip": "142.250.80.46"
+            },
+            "category": "dns",
+            "notes": "Reverse IP lookup"
+        },
+        {
+            "id": 9,
+            "query": "Find domains using nameserver ns1.google.com",
+            "expected_tool": "reverse_ns",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "target": "ns1.google.com"
+            },
+            "category": "dns",
+            "notes": "Reverse nameserver lookup"
+        },
+        {
+            "id": 10,
+            "query": "Find subdomains of microsoft.com",
+            "expected_tool": "subdomain_lookup",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "domainName": "microsoft.com"
+            },
+            "category": "discovery",
+            "notes": "Subdomain enumeration"
+        },
+        {
+            "id": 11,
+            "query": "Where is IP address 8.8.8.8 located?",
+            "expected_tool": "ipgeolocation",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "ip": "8.8.8.8"
+            },
+            "category": "ip",
+            "notes": "IP geolocation"
+        },
+        {
+            "id": 12,
+            "query": "What network block owns 8.8.8.0?",
+            "expected_tool": "ip_netblocks",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "ip": "8.8.8.0"
+            },
+            "category": "ip",
+            "notes": "IP netblock ownership"
+        },
+        {
+            "id": 13,
+            "query": "Check threat intelligence for suspicious-domain.com",
+            "expected_tool": "threat_intelligence",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "target": "suspicious-domain.com"
+            },
+            "category": "security",
+            "notes": "Threat intelligence check"
+        },
+        {
+            "id": 14,
+            "query": "Show SSL certificates for github.com",
+            "expected_tool": "ssl_certificates",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "domainName": "github.com"
+            },
+            "category": "security",
+            "notes": "SSL certificate info"
+        },
+        {
+            "id": 15,
+            "query": "Verify the email address test@gmail.com",
+            "expected_tool": "email_verification",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "email": "test@gmail.com"
+            },
+            "category": "security",
+            "notes": "Email verification"
+        },
+        {
+            "id": 16,
+            "query": "What category is reddit.com?",
+            "expected_tool": "categorization",
+            "expected_server": "whoisxml",
+            "expected_params": {
+                "domainName": "reddit.com"
+            },
+            "category": "security",
+            "notes": "Website categorization"
+        },
+        {
+            "id": 17,
+            "query": "Look up CVE-2021-44228",
+            "expected_tool": "shodan_cve_lookup",
+            "expected_server": "shodan",
+            "expected_params": {
+                "cve_id": "CVE-2021-44228"
+            },
+            "category": "security",
+            "notes": "CVE vulnerability lookup via Shodan. Actual tool name from MCP may be 'cve-lookup' or 'cve_lookup'",
+            "acceptable_tools": ["shodan_cve_lookup", "cve-lookup", "cve_lookup"]
+        },
+        {
+            "id": 18,
+            "query": "What services are running on IP 1.1.1.1?",
+            "expected_tool": "shodan_host_lookup",
+            "expected_server": "shodan",
+            "expected_params": {
+                "ip": "1.1.1.1"
+            },
+            "category": "ip",
+            "notes": "Shodan host reconnaissance. Actual tool name from MCP may be 'host' or 'ip_lookup'",
+            "acceptable_tools": ["shodan_host_lookup", "host", "ip_lookup"]
+        },
+        {
+            "id": 19,
+            "query": "What technologies does shopify.com use?",
+            "expected_tool": "builtwith",
+            "expected_server": "builtwith",
+            "expected_params": {
+                "domain": "shopify.com"
+            },
+            "category": "discovery",
+            "notes": "BuiltWith technology detection. Actual tool name from MCP may be 'free-api'",
+            "acceptable_tools": ["builtwith", "free-api"]
+        },
+        {
+            "id": 20,
+            "query": "How popular is WordPress?",
+            "expected_tool": "builtwith_trends",
+            "expected_server": "builtwith",
+            "expected_params": {
+                "technology": "WordPress"
+            },
+            "category": "discovery",
+            "notes": "BuiltWith technology trends. Actual tool name from MCP may be 'trends-api'",
+            "acceptable_tools": ["builtwith_trends", "trends-api"]
+        }
+    ]
+}

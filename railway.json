@@ -1,0 +1,18 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "./Dockerfile",
+    "watchPatterns": [
+      "requirements.txt",
+      "researcher/**",
+      "osint_project/**",
+      "Dockerfile",
+      "railway.json"
+    ]
+  },
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

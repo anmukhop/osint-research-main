@@ -1,0 +1,2324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSINT Research Tool</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg-deep: #080c14;
+            --bg-primary: #0c1220;
+            --bg-card: #111927;
+            --bg-elevated: #182035;
+            --border: #1e2d4a;
+            --border-active: #3b6cf6;
+            --text-primary: #e4e9f1;
+            --text-secondary: #aebbd1;
+            --text-muted: #cbd5e1;
+            --accent: #3b6cf6;
+            --accent-glow: rgba(59, 108, 246, 0.15);
+            --accent-bright: #6b93ff;
+            --success: #22c55e;
+            --success-bg: #0d2818;
+            --error: #ef4444;
+            --error-bg: #2a1215;
+            --warning: #f59e0b;
+            --warning-bg: #2a2010;
+            --mono: 'JetBrains Mono', monospace;
+            --sans: 'Outfit', sans-serif;
+        }
+
+        /* Context-aware toggle — fixed top-left */
+        .context-toggle {
+            position: fixed;
+            top: 1.5rem;
+            left: 1.5rem;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 0.625rem;
+            font-family: var(--sans);
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.5rem 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .context-toggle:hover {
+            border-color: var(--border-active);
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+        }
+
+        .context-toggle.active {
+            border-color: var(--success);
+            background: rgba(34, 197, 94, 0.08);
+            color: var(--success);
+        }
+
+        .context-toggle .toggle-switch {
+            width: 28px;
+            height: 16px;
+            border-radius: 999px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            position: relative;
+            flex-shrink: 0;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+
+        .context-toggle.active .toggle-switch {
+            background: var(--success);
+            border-color: var(--success);
+        }
+
+        .context-toggle .toggle-knob {
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        .context-toggle.active .toggle-knob {
+            transform: translateX(12px);
+            background: white;
+        }
+
+        /* Auth nav — floating top-right, visible across landing and tool sections */
+        .auth-nav {
+            position: fixed;
+            top: 1.5rem;
+            right: 1.5rem;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-family: var(--sans);
+            font-size: 0.875rem;
+        }
+
+        .auth-nav .auth-user {
+            color: var(--text-secondary);
+            padding: 0.5rem 0.875rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .auth-nav .auth-user strong {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .auth-nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 0.5rem 0.875rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            transition: all 0.15s ease;
+        }
+
+        .auth-nav a:hover {
+            color: var(--text-primary);
+            border-color: var(--border-active);
+            background: var(--bg-elevated);
+        }
+
+        .auth-nav a.auth-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .auth-nav a.auth-primary:hover {
+            background: var(--accent-bright);
+            border-color: var(--accent-bright);
+            color: white;
+        }
+
+        /* Inline logout button styled as a link (since Django 5 requires POST for logout) */
+        .auth-nav form {
+            display: inline;
+        }
+
+        .auth-nav form button {
+            font-family: inherit;
+            font-size: inherit;
+            color: var(--text-secondary);
+            padding: 0.5rem 0.875rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .auth-nav form button:hover {
+            color: var(--text-primary);
+            border-color: var(--border-active);
+            background: var(--bg-elevated);
+        }
+
+        .auth-nav .auth-team {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-primary);
+            padding: 0.5rem 0.875rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+
+        .auth-nav .auth-team:hover {
+            border-color: var(--border-active);
+            background: var(--bg-elevated);
+        }
+
+        .auth-nav .auth-team-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        .auth-nav .auth-team-empty {
+            color: var(--text-muted);
+        }
+
+        .auth-nav .auth-team-empty .auth-team-dot,
+        .auth-nav .auth-team.auth-team-empty::before {
+            display: none;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: var(--sans);
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ===================== LANDING SECTION ===================== */
+        .landing {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding: 2rem;
+            overflow: hidden;
+        }
+
+        /* Ambient background glow */
+        .landing::before {
+            content: '';
+            position: absolute;
+            top: -30%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, rgba(59,108,246,0.08) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        /* Grid pattern overlay */
+        .landing::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(59,108,246,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(59,108,246,0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+            mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 100%);
+            -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black 20%, transparent 100%);
+        }
+
+        .landing-content {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            max-width: 680px;
+        }
+
+        .landing-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.375rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            letter-spacing: 0.04em;
+            margin-bottom: 2rem;
+            animation: fadeDown 0.6s ease-out;
+        }
+
+        .landing-badge .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .landing-title {
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            font-weight: 700;
+            line-height: 1.1;
+            letter-spacing: -0.03em;
+            margin-bottom: 1.25rem;
+            animation: fadeDown 0.6s ease-out 0.1s both;
+        }
+
+        .landing-title .accent {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-bright) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .landing-desc {
+            font-size: 1.125rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            margin-bottom: 2.5rem;
+            font-weight: 300;
+            animation: fadeDown 0.6s ease-out 0.2s both;
+        }
+
+        .landing-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.625rem;
+            padding: 0.875rem 2rem;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-family: var(--sans);
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            text-decoration: none;
+            animation: fadeDown 0.6s ease-out 0.3s both;
+        }
+
+        .landing-cta:hover {
+            background: #2d5ae0;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(59,108,246,0.3);
+        }
+
+        .landing-cta svg {
+            transition: transform 0.25s ease;
+        }
+
+        .landing-cta:hover svg {
+            transform: translateX(3px);
+        }
+
+        .landing-features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.25rem;
+            margin-top: 4rem;
+            animation: fadeDown 0.6s ease-out 0.45s both;
+        }
+
+        .landing-feature {
+            padding: 1.25rem;
+            background: rgba(17, 25, 39, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            text-align: left;
+            backdrop-filter: blur(8px);
+            transition: border-color 0.2s ease;
+        }
+
+        .landing-feature:hover {
+            border-color: var(--border-active);
+        }
+
+        .landing-feature .feat-icon {
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .landing-feature .feat-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .landing-feature .feat-desc {
+            font-size: 0.775rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        @keyframes fadeDown {
+            from { opacity: 0; transform: translateY(-12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 640px) {
+            .landing-features {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ===================== TOOL SECTION ===================== */
+        .tool-section {
+            min-height: 100vh;
+            padding: 3rem 2rem;
+            max-width: 920px;
+            margin: 0 auto;
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+
+        .tool-header h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .back-link:hover {
+            color: var(--text-primary);
+            background: var(--bg-card);
+        }
+
+        /* Search Box */
+        .search-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+            border-radius: 14px;
+            margin-bottom: 1.25rem;
+        }
+
+        .search-form {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        input[type="text"],
+        textarea {
+            flex: 1;
+            padding: 0.8rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: var(--sans);
+            font-size: 0.9375rem;
+            transition: border-color 0.2s;
+        }
+
+        textarea {
+            min-height: 5.5rem;
+            line-height: 1.45;
+            resize: vertical;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        input[type="text"]::placeholder,
+        textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        input[type="text"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        button {
+            font-family: var(--sans);
+        }
+
+        .btn-primary {
+            padding: 0.8rem 1.5rem;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn-primary:hover {
+            background: #2d5ae0;
+        }
+
+        .btn-primary:disabled {
+            background: var(--bg-elevated);
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            padding: 0.6rem 1rem;
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border-color: var(--text-muted);
+        }
+
+        .btn-danger {
+            padding: 0.6rem 1rem;
+            background: transparent;
+            color: var(--error);
+            border: 1px solid rgba(239,68,68,0.3);
+            border-radius: 8px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-danger:hover {
+            background: var(--error-bg);
+        }
+
+        .examples {
+            margin-top: 0.875rem;
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .examples span {
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 0.2rem 0.6rem;
+            border-radius: 5px;
+            background: var(--bg-elevated);
+            border: 1px solid transparent;
+            transition: all 0.15s;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+        }
+
+        .examples span:hover {
+            color: var(--accent-bright);
+            border-color: var(--border);
+        }
+
+        /* Confirmation Box */
+        .confirmation-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-active);
+            padding: 1.5rem;
+            border-radius: 14px;
+            margin-bottom: 1.25rem;
+            display: none;
+        }
+
+        .confirmation-box.show {
+            display: block;
+            animation: slideUp 0.25s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .confirmation-box h3 {
+            font-size: 0.9375rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--accent-bright);
+        }
+
+        .confirmation-message {
+            background: var(--bg-deep);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9375rem;
+            line-height: 1.6;
+        }
+
+        .confirmation-details {
+            font-size: 0.9375rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .confirmation-details .detail-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+        }
+
+        .confirmation-details .detail-label {
+            color: var(--text-muted);
+            font-size: 0.9375rem;
+        }
+
+        .confirmation-details code {
+            background: var(--bg-elevated);
+            padding: 0.125rem 0.5rem;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 0.875rem;
+            color: var(--accent-bright);
+        }
+
+        .confirmation-plan {
+            display: none;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .confirmation-plan.show {
+            display: block;
+        }
+
+        .confirmation-plan-title {
+            color: var(--text);
+            font-size: 0.9375rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .confirmation-plan-list {
+            display: grid;
+            gap: 0.4rem;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .confirmation-plan-list li {
+            color: var(--text-muted);
+            font-size: 0.9375rem;
+            line-height: 1.45;
+        }
+
+        .confirmation-plan-list strong {
+            color: var(--text);
+            font-weight: 700;
+        }
+
+        .confirmation-buttons {
+            display: flex;
+            gap: 0.625rem;
+        }
+
+        /* Progress Box */
+        .progress-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+            border-radius: 14px;
+            margin-bottom: 1.25rem;
+            display: none;
+        }
+
+        .progress-box.show {
+            display: block;
+            animation: slideUp 0.25s ease-out;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .progress-header h3 {
+            font-size: 0.9375rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.625rem;
+        }
+
+        .progress-bar-container {
+            background: var(--bg-deep);
+            border-radius: 6px;
+            height: 4px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+            height: 100%;
+            width: 0%;
+            transition: width 0.4s ease;
+            border-radius: 6px;
+        }
+
+        .progress-steps {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .progress-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.625rem;
+            padding: 0.5rem 0;
+            font-size: 0.8125rem;
+            border-bottom: 1px solid rgba(30,45,74,0.5);
+        }
+
+        .progress-step:last-child {
+            border-bottom: none;
+        }
+
+        .progress-step .icon {
+            min-width: 1.25rem;
+            text-align: center;
+        }
+
+        .progress-step .message {
+            flex: 1;
+            color: var(--text-secondary);
+        }
+
+        .progress-step .time {
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.6875rem;
+        }
+
+        /* Results */
+        .results {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+            border-radius: 14px;
+            display: none;
+        }
+
+        .results.show {
+            display: block;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        .suggestions-box {
+            margin-top: 1.5rem;
+        }
+
+        .suggestions-header {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+        }
+
+        .suggestions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .suggestion-btn {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-family: var(--sans);
+            font-size: 0.9375rem;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .suggestion-btn:hover {
+            border-color: var(--border-active);
+            background: var(--bg-elevated);
+        }
+
+        .suggestion-btn::before {
+            content: "→ ";
+            color: var(--accent);
+            font-family: var(--mono);
+            margin-right: 0.25rem;
+        }
+
+        /* Free-text follow-up input. Uses the same border/background tokens as the main search
+           input so it reads as part of the same family. */
+        .followup-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .followup-input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-family: var(--sans);
+            font-size: 0.9375rem;
+            transition: border-color 0.15s;
+        }
+
+        .followup-input:focus {
+            outline: none;
+            border-color: var(--border-active);
+        }
+
+        .followup-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .followup-submit {
+            padding: 0.75rem 1.25rem;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-family: var(--sans);
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .followup-submit:hover {
+            background: #2d5ae0;
+        }
+
+        .followup-submit:disabled {
+            background: var(--bg-elevated);
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        .thread {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .thread-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
+        .thread-controls .label {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            font-family: var(--mono);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .thread-controls .clear-btn {
+            background: var(--accent);
+            color: #080c14;
+            border: 1px solid var(--accent);
+            padding: 0.5rem 0.875rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .thread-controls .clear-btn:hover {
+            background: #8aabff;
+            border-color: #8aabff;
+        }
+        .thread-controls .clear-btn .plus {
+            font-size: 1rem;
+            line-height: 1;
+            font-weight: 400;
+        }
+
+        .turn-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem 1.5rem;
+        }
+        .turn-card.is-recent {
+            border-color: rgba(107,147,255,0.35);
+        }
+        .turn-card.is-failed {
+            border-color: rgba(239,68,68,0.35);
+        }
+        /* Links in result content — readable against the dark-blue cards.
+           Force :link and :visited to the same color so visited links don't
+           turn into unreadable browser-default purple. */
+        .turn-card a,
+        .turn-card a:link,
+        .turn-card a:visited {
+            color: #8aabff !important;
+            text-decoration: underline;
+            text-decoration-color: rgba(138, 171, 255, 0.4);
+            text-underline-offset: 2px;
+            word-break: break-all;
+        }
+        .turn-card a:hover,
+        .turn-card a:active {
+            color: #b6c9ff !important;
+            text-decoration-color: #b6c9ff;
+        }
+
+        .turn-q {
+            display: flex;
+            gap: 0.625rem;
+            align-items: baseline;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+        }
+        .turn-q .q-tag {
+            color: var(--accent);
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            flex-shrink: 0;
+            padding-top: 0.125rem;
+        }
+        .turn-q .q-text {
+            font-size: 1rem;
+            font-weight: 500;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+
+        .turn-meta {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-bottom: 0.875rem;
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .turn-meta .author { color: var(--accent); font-weight: 500; }
+
+        .turn-summary {
+            line-height: 1.65;
+            color: var(--text);
+        }
+        .turn-summary h1, .turn-summary h2, .turn-summary h3 {
+            color: var(--accent);
+            margin-top: 0.875rem;
+            margin-bottom: 0.5rem;
+        }
+        .turn-summary code {
+            background: var(--bg-elevated);
+            padding: 0.125rem 0.375rem;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 0.85rem;
+        }
+        .turn-summary ul, .turn-summary ol { margin-left: 1.5rem; }
+
+        .turn-error {
+            background: var(--error-bg);
+            color: #fecaca;
+            border: 1px solid rgba(239,68,68,0.25);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+        }
+        .turn-info {
+            background: rgba(107,147,255,0.12);
+            color: #dbeafe;
+            border: 1px solid rgba(107,147,255,0.35);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+        }
+        .turn-steps {
+            color: var(--text);
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.65rem 0.85rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+        }
+        .turn-steps .label {
+            color: var(--text-primary);
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-right: 0.4rem;
+        }
+
+        /* Per-turn collapsible "details" — used for stats, tool calls, raw results.
+           <details> + <summary> gives us native expand/collapse with no JS. */
+        .turn-details {
+            margin-top: 0.875rem;
+            border-top: 1px solid var(--border);
+            padding-top: 0.875rem;
+        }
+        .turn-details summary {
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 0.925rem;
+            font-family: var(--mono);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            list-style: none;
+            user-select: none;
+        }
+        .turn-details summary::before {
+            content: "▸ ";
+            display: inline-block;
+            transition: transform 0.15s ease;
+        }
+        .turn-details[open] > summary::before {
+            transform: rotate(90deg);
+        }
+        .turn-details summary:hover { color: var(--text); }
+        .turn-details .details-body {
+            margin-top: 0.75rem;
+            font-size: 0.85rem;
+        }
+
+        .turn-stats {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 0.875rem;
+            flex-wrap: wrap;
+        }
+        .turn-stats .stat-mini {
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.925rem;
+            color: var(--text);
+        }
+        .turn-stats .stat-mini .label {
+            color: var(--text-muted);
+            font-size: 0.825rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-right: 0.375rem;
+        }
+
+        /* Notifications bell */
+        .bell-wrap { position: relative; display: inline-block; margin-left: 1rem; }
+        .bell-btn {
+            background: none; border: none; cursor: pointer; color: var(--text-muted);
+            font-size: 1.1rem; padding: 0.25rem 0.5rem; line-height: 1;
+            position: relative; font-family: inherit;
+        }
+        .bell-btn:hover { color: var(--text); }
+        .bell-badge {
+            position: absolute; top: -2px; right: -2px;
+            background: #ef4444; color: white;
+            font-size: 0.65rem; font-weight: 600;
+            min-width: 1rem; height: 1rem; padding: 0 0.25rem;
+            border-radius: 999px; display: flex; align-items: center; justify-content: center;
+            line-height: 1;
+        }
+        .bell-dropdown {
+            display: none; position: absolute; top: calc(100% + 0.5rem); right: 0;
+            background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+            min-width: 320px; max-width: 380px; max-height: 400px; overflow-y: auto;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 100;
+        }
+        .bell-dropdown.show { display: block; }
+        .bell-dropdown .empty {
+            padding: 1.25rem 1rem; color: var(--text-muted); font-size: 0.85rem; text-align: center;
+        }
+        .bell-item {
+            display: block; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+            color: var(--text); text-decoration: none; cursor: pointer;
+            transition: background 0.1s ease;
+        }
+        .bell-item:last-child { border-bottom: none; }
+        .bell-item:hover { background: rgba(107, 147, 255, 0.08); }
+        .bell-item .qtext { font-size: 0.875rem; line-height: 1.35; margin-bottom: 0.25rem; }
+        .bell-item .meta { font-size: 0.875rem; color: var(--text-muted); }
+        .bell-item .meta .author { color: var(--accent); }
+
+/* Follow-up sits in normal document flow at the bottom of the thread.
+           Confirmation and progress boxes appear above it, below the latest
+           turn — so the page reads top-down: turns → confirm → progress → next input. */
+        .thread-followup {
+            margin-top: 0.875rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+        }
+        .thread-followup .followup-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.625rem;
+        }
+        .new-thread-link {
+            background: var(--accent);
+            color: #080c14;
+            border: 1px solid var(--accent);
+            padding: 0.4rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .new-thread-link:hover {
+            background: #8aabff;
+            border-color: #8aabff;
+        }
+
+        /* Hide the top search bar (and its example chips) once a thread exists.
+           All interaction shifts to the bottom in chat-mode. JS toggles
+           body.thread-active. */
+        body.thread-active .search-box {
+            display: none;
+        }
+
+        .thread-followup .header {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            font-family: var(--mono);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.625rem;
+        }
+        /* Error display */
+        .error-box {
+            border: 1px solid rgba(239,68,68,0.25);
+            background: var(--error-bg);
+            border-radius: 10px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .error-box .error-title {
+            font-size: 0.9375rem;
+            font-weight: 600;
+            color: var(--error);
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .error-box .error-message {
+            font-size: 0.875rem;
+            color: #f8a0a0;
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .error-box .error-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.625rem;
+        }
+
+        .error-box .error-meta-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            background: rgba(0,0,0,0.25);
+            padding: 0.25rem 0.625rem;
+            border-radius: 5px;
+            font-family: var(--mono);
+        }
+
+        .error-box .error-meta-item .label {
+            color: var(--text-muted);
+        }
+
+        /* Success banner */
+        .success-banner {
+            background: var(--success-bg);
+            border: 1px solid rgba(34,197,94,0.2);
+            color: var(--success);
+            padding: 0.875rem 1rem;
+            border-radius: 10px;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9375rem;
+            font-weight: 500;
+        }
+
+        /* Summary text */
+        .summary {
+            line-height: 1.75;
+            margin-bottom: 1.5rem;
+            font-size: 0.9375rem;
+        }
+
+        .summary h1, .summary h2, .summary h3 {
+            color: var(--accent-bright);
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .summary ul, .summary ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .summary li {
+            margin-bottom: 0.25rem;
+        }
+
+        .summary code {
+            background: var(--bg-elevated);
+            padding: 0.125rem 0.375rem;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 0.8125rem;
+        }
+
+        /* Stats bar */
+        .stats {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat {
+            background: var(--bg-deep);
+            border: 1px solid var(--border);
+            padding: 1rem;
+            border-radius: 10px;
+            text-align: center;
+            flex: 1;
+        }
+
+        .stat-number {
+            font-size: 1.375rem;
+            font-weight: 700;
+            color: var(--accent-bright);
+            font-family: var(--mono);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* Sites list */
+        .sites-header {
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .sites-list {
+            max-height: 420px;
+            overflow-y: auto;
+        }
+
+        .site-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.625rem 0.75rem;
+            background: var(--bg-deep);
+            border: 1px solid transparent;
+            border-radius: 8px;
+            margin-bottom: 0.375rem;
+            transition: border-color 0.15s;
+        }
+
+        .site-item:hover {
+            border-color: var(--border);
+        }
+
+        .site-name {
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        .site-category {
+            font-size: 0.6875rem;
+            color: var(--text-muted);
+            background: var(--bg-elevated);
+            padding: 0.1rem 0.5rem;
+            border-radius: 4px;
+            margin-left: 0.5rem;
+            font-family: var(--mono);
+        }
+
+
+        /* Spinner */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- =================== CONTEXT-AWARE TOGGLE =================== -->
+    {% if user.is_authenticated %}
+    <button class="context-toggle {% if context_aware_enabled %}active{% endif %}"
+            id="contextToggle"
+            title="Enable context-aware mode — the browser extension will capture your browsing activity to help with research">
+        <span class="toggle-switch"><span class="toggle-knob"></span></span>
+        <span id="contextToggleLabel">Context{% if context_aware_enabled %} ON{% else %} OFF{% endif %}</span>
+    </button>
+    {% endif %}
+
+    <!-- =================== AUTH NAV =================== -->
+    <nav class="auth-nav">
+        {% if user.is_authenticated %}
+            {% if active_team %}
+                <a href="{% url 'workspace' %}" class="auth-team" title="{{ active_team.name }} workspace">
+                    <span class="auth-team-dot"></span>{{ active_team.name }}
+                </a>
+                <a href="{% url 'teams_list' %}" class="auth-team-manage" title="Manage teams">⚙</a>
+                <span class="bell-wrap">
+                    <button class="bell-btn" id="bellBtn" type="button" aria-label="Notifications">
+                        🔔
+                        <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+                    </button>
+                    <div class="bell-dropdown" id="bellDropdown" role="menu">
+                        <div class="empty" id="bellEmpty">No new notifications</div>
+                    </div>
+                </span>
+            {% else %}
+                <a href="{% url 'teams_list' %}" class="auth-team auth-team-empty">No team</a>
+            {% endif %}
+            <span class="auth-user">Hi <strong>{{ user.username }}</strong></span>
+            <form method="post" action="{% url 'logout' %}" style="display:inline; margin:0;">
+                {% csrf_token %}
+                <button type="submit" style="background:none; border:none; color:#7a8baa;
+                        cursor:pointer; font-size:0.875rem; font-family:inherit; padding:0;">
+                    Log out
+                </button>
+            </form>
+        {% else %}
+            <a href="{% url 'login' %}">Log in</a>
+            <a href="{% url 'signup' %}" class="auth-primary">Sign up</a>
+        {% endif %}
+    </nav>
+
+    <!-- =================== LANDING PAGE =================== -->
+    <section class="landing" id="landing">
+        <div class="landing-content">
+            <div class="landing-badge">
+                <span class="dot"></span>
+                OSINT Research Platform
+            </div>
+
+            <h1 class="landing-title">
+                Investigate the<br><span class="accent">digital footprint</span>
+            </h1>
+
+            <p class="landing-desc">
+                Query domain registrations, DNS records, IP geolocation, and threat data
+                through natural language — powered by MCP tool orchestration.
+            </p>
+
+            <a href="#tool" class="landing-cta" id="ctaButton">
+                Start Searching
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </a>
+
+            <div class="landing-features">
+                <div class="landing-feature">
+                    <div class="feat-icon">🌐</div>
+                    <div class="feat-title">Domain Intelligence</div>
+                    <div class="feat-desc">Look up WHOIS registration and ownership details, enumerate subdomains, query DNS records (A, MX, NS, TXT), and run reverse lookups by registrant, nameserver, or mail server.</div>
+                </div>
+                <div class="landing-feature">
+                    <div class="feat-icon">📡</div>
+                    <div class="feat-title">IP &amp; Network</div>
+                    <div class="feat-desc">Resolve IP geolocation down to city level, identify the owning ASN and organization, map netblock ranges, and perform reverse DNS to discover all domains hosted on an address.</div>
+                </div>
+                <div class="landing-feature">
+                    <div class="feat-icon">🔒</div>
+                    <div class="feat-title">Security &amp; Validation</div>
+                    <div class="feat-desc">Pull threat intelligence scores for domains and IPs, inspect SSL certificate chains and expiry, verify email address deliverability, and categorize websites by content type.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- =================== SEARCH TOOL =================== -->
+    <section class="tool-section" id="tool">
+        <div class="tool-header">
+            <a href="#landing" class="back-link">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                Back
+            </a>
+            <h2>🔍 Search</h2>
+        </div>
+
+        <!-- Search Box -->
+        <div class="search-box">
+            <form class="search-form" id="searchForm">
+                <textarea
+                    id="queryInput"
+                    placeholder="e.g. Who owns github.com?"
+                    autocomplete="off"
+                ></textarea>
+                <button type="submit" class="btn-primary" id="searchBtn">Search</button>
+            </form>
+            <div class="examples">
+                Try:
+                <span onclick="setQuery('Find all social media accounts for test_user')">Username search</span>
+                <span onclick="setQuery('Who owns github.com?')">WHOIS lookup</span>
+                <span onclick="setQuery('What are the DNS records for google.com?')">DNS lookup</span>
+            </div>
+        </div>
+
+        <!-- Thread container — append-only. Each turn becomes a .turn-card child. -->
+        <div class="thread" id="thread"></div>
+
+        <!-- Confirmation Box. Lives below the thread so it appears beneath the
+             most recent turn when a follow-up is dispatched. -->
+        <div class="confirmation-box" id="confirmationBox">
+            <h3>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                Confirm Search
+            </h3>
+            <div class="confirmation-message" id="confirmationMessage"></div>
+            <div class="confirmation-details">
+                <span class="detail-item">
+                    <span class="detail-label">Tool:</span>
+                    <code id="confirmAction"></code>
+                </span>
+                <span class="detail-item">
+                    <span class="detail-label">Params:</span>
+                    <code id="confirmParams"></code>
+                </span>
+            </div>
+            <div class="confirmation-plan" id="confirmationPlan">
+                <div class="confirmation-plan-title">Execution plan</div>
+                <ul class="confirmation-plan-list" id="confirmationPlanList"></ul>
+            </div>
+            <div class="confirmation-buttons">
+                <button class="btn-primary" id="confirmBtn" onclick="executeSearch()">Run Search</button>
+                <button class="btn-secondary" onclick="editQuery()">Edit Query</button>
+                <button class="btn-danger" onclick="cancelSearch()">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Progress Box. Lives below the thread for the same reason. -->
+        <div class="progress-box" id="progressBox">
+            <div class="progress-header">
+                <h3><span class="spinner"></span> Searching…</h3>
+                <button class="btn-danger" onclick="cancelSearch()">Cancel</button>
+            </div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-steps" id="progressSteps"></div>
+        </div>
+
+        <div class="thread-followup" id="threadFollowup" style="display:none;">
+            <div class="followup-header-row">
+                <span class="header">Ask a follow-up</span>
+                <button class="new-thread-link" id="newThreadBtn" type="button"
+                        title="Clear this thread and start fresh with no prior context">
+                    + New thread
+                </button>
+            </div>
+            <div class="followup-row">
+                <input type="text"
+                       class="followup-input"
+                       id="threadFollowupInput"
+                       placeholder="Type a follow-up question..."
+                       autocomplete="off">
+                <button class="followup-submit" id="threadFollowupSubmit" type="button">Send</button>
+            </div>
+        </div>
+
+        <!-- Single error banner for top-level failures (parse/network/etc).
+             Per-turn errors render inside the turn card itself. -->
+        <div class="error-display" id="errorDisplay" style="display:none;"></div>
+    </section>
+
+    <script>
+        // =================== STATE ===================
+        let currentQuery = '';
+        let confirmedAction = null;
+        let confirmedParams = null;
+        let eventSource = null;
+        let currentParentId = null;
+        let isSubmitting = false;
+        let isProcessing = false;
+
+        // =================== ELEMENTS ===================
+        const form = document.getElementById('searchForm');
+        const input = document.getElementById('queryInput');
+        const btn = document.getElementById('searchBtn');
+        const confirmBtn = document.getElementById('confirmBtn');
+        const confirmationBox = document.getElementById('confirmationBox');
+        const confirmationPlan = document.getElementById('confirmationPlan');
+        const confirmationPlanList = document.getElementById('confirmationPlanList');
+        const progressBox = document.getElementById('progressBox');
+
+        // Thread-mode elements (Pass B)
+        const threadEl = document.getElementById('thread');
+        const threadFollowupEl = document.getElementById('threadFollowup');
+        const threadFollowupInput = document.getElementById('threadFollowupInput');
+        const threadFollowupSubmit = document.getElementById('threadFollowupSubmit');
+        const newThreadBtn = document.getElementById('newThreadBtn');
+        const errorDisplayEl = document.getElementById('errorDisplay');
+
+        function setRequestControlsDisabled(disabled) {
+            btn.disabled = disabled;
+            threadFollowupSubmit.disabled = disabled;
+            if (confirmBtn) confirmBtn.disabled = disabled;
+        }
+
+        function beginRequest() {
+            isSubmitting = true;
+            setRequestControlsDisabled(true);
+        }
+
+        function endRequest() {
+            isSubmitting = false;
+            isProcessing = false;
+            setRequestControlsDisabled(false);
+        }
+
+        // ----- Sticky follow-up wiring -----
+        // The sticky box at the bottom of the thread is the single "what next?"
+        // affordance once a thread exists. Submits via the same path as the top
+        // search bar — copy text up, dispatch the form's submit event.
+        function submitThreadFollowup() {
+            if (isSubmitting || isProcessing) return;
+            const text = threadFollowupInput.value.trim();
+            if (!text) return;
+            input.value = text;
+            currentQuery = text;
+            // currentParentId is already set to the most recent turn's ID
+            // by appendTurn — no need to set it here.
+            form.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+        threadFollowupSubmit.addEventListener('click', submitThreadFollowup);
+        threadFollowupInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitThreadFollowup();
+            }
+        });
+
+        // ----- New thread button -----
+        // Clears the visible thread, resets parent linkage, and refocuses the
+        // top input. The DB rows still exist — this is purely UI reset.
+        newThreadBtn.addEventListener('click', () => {
+            clearThread();
+            input.value = '';
+            input.focus();
+        });
+
+        // ----- ?q= prefill from suggestion notifications -----
+        // Suggestion bell-notifications link to /?q=<query> so clicking them
+        // lands here with the query pre-filled and ready to submit.
+        (function handleSuggestionPrefill() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const qParam = urlParams.get('q');
+            // Don't run when there's also a parent_id (that's the workspace handoff)
+            if (qParam && !urlParams.get('parent_id')) {
+                input.value = qParam;
+                window.history.replaceState({}, '', window.location.pathname);
+                input.focus();
+            }
+        })();
+
+        // ----- Handoff from /workspace/q/<id>/ -----
+        // When a teammate clicks "Send" on a shared query's follow-up box,
+        // they land here with parent_id and prefill in the URL. We:
+        //   1. Fetch the ancestor chain from /thread/<id>/ and render it as
+        //      collapsed cards so the new turn has visible context above it.
+        //   2. Hydrate the search input with the prefilled follow-up.
+        //   3. Auto-submit so the user doesn't have to click Search again —
+        //      they already clicked Send on the workspace page.
+        (async function handleFollowupHandoff() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const parentId = urlParams.get('parent_id');
+            const prefill = urlParams.get('prefill');
+            if (!parentId || !prefill) return;
+
+            // Strip params from the URL so a refresh doesn't re-trigger.
+            window.history.replaceState({}, '', window.location.pathname);
+
+            // Render prior turns first. await ensures the cards are visible
+            // before the SSE flow appends the new turn below them.
+            await loadThreadFromHandoff(parentId);
+
+            input.value = prefill;
+            currentQuery = prefill;
+            currentParentId = parentId;
+
+            // Defer one tick so any pending DOM work settles, then submit.
+            setTimeout(() => {
+                form.dispatchEvent(new Event('submit', { cancelable: true }));
+            }, 0);
+        })();
+
+        // =================== HELPERS ===================
+        function setQuery(text) {
+            input.value = text;
+            input.focus();
+        }
+
+        function hideAllBoxes() {
+            confirmationBox.classList.remove('show');
+            renderConfirmationPlan([]);
+            progressBox.classList.remove('show');
+            // Note: thread elements are NOT hidden here. The thread persists
+            // across searches by design — that's the whole point of append-only.
+            // Top-level errors get cleared at the start of a new search.
+            errorDisplayEl.style.display = 'none';
+            errorDisplayEl.innerHTML = '';
+        }
+
+        function addProgressStep(icon, message) {
+            const steps = document.getElementById('progressSteps');
+            const time = new Date().toLocaleTimeString();
+            steps.innerHTML += `
+                <div class="progress-step">
+                    <span class="icon">${icon}</span>
+                    <span class="message">${message}</span>
+                    <span class="time">${time}</span>
+                </div>
+            `;
+            steps.scrollTop = steps.scrollHeight;
+        }
+
+        function updateProgressBar(percent) {
+            document.getElementById('progressBar').style.width = `${percent}%`;
+        }
+
+        /**
+         * Render a structured error into the results div.
+         * Shows the query, tool used, params, and error message — nothing else.
+         */
+        function showError(errorMessage, details = {}) {
+            confirmationBox.classList.remove('show');
+            renderConfirmationPlan([]);
+            progressBox.classList.remove('show');
+
+            const metaItems = [];
+            if (details.query) {
+                metaItems.push(`<span class="error-meta-item"><span class="label">Query:</span> ${escapeHtml(details.query)}</span>`);
+            }
+            if (details.action) {
+                metaItems.push(`<span class="error-meta-item"><span class="label">Tool:</span> ${escapeHtml(details.action)}</span>`);
+            }
+            if (details.params) {
+                const paramStr = typeof details.params === 'string' ? details.params : JSON.stringify(details.params);
+                metaItems.push(`<span class="error-meta-item"><span class="label">Params:</span> ${escapeHtml(paramStr)}</span>`);
+            }
+
+            errorDisplayEl.style.display = 'block';
+            errorDisplayEl.innerHTML = `
+                <div class="error-box">
+                    <div class="error-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                        Search Failed
+                    </div>
+                    <div class="error-message">${escapeHtml(errorMessage)}</div>
+                    ${metaItems.length ? `<div class="error-meta">${metaItems.join('')}</div>` : ''}
+                </div>
+            `;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function formatToolWithServer(call) {
+            const name = call.tool || call.tool_name || 'unknown';
+            const serverName = call.server || call.server_name || '';
+            return serverName ? `${name} [${serverName}]` : name;
+        }
+
+        function formatExecutionSteps(toolCalls, fallbackSteps) {
+            if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+                return toolCalls.map(formatToolWithServer);
+            }
+            return Array.isArray(fallbackSteps) ? fallbackSteps : [];
+        }
+
+        function renderConfirmationPlan(toolPlan) {
+            if (!confirmationPlan || !confirmationPlanList) return;
+            confirmationPlanList.innerHTML = '';
+
+            if (!Array.isArray(toolPlan) || toolPlan.length === 0) {
+                confirmationPlan.classList.remove('show');
+                return;
+            }
+
+            toolPlan.forEach((item, index) => {
+                const li = document.createElement('li');
+                const toolName = item.tool || 'unknown';
+                const serverName = item.server || 'unknown';
+                const description = item.description || toolName;
+                const params = item.params && Object.keys(item.params).length
+                    ? ` Params: ${JSON.stringify(item.params)}`
+                    : '';
+                li.innerHTML = `<strong>${index + 1}. ${escapeHtml(toolName)}</strong> <span>(${escapeHtml(serverName)}) - ${escapeHtml(description)}${escapeHtml(params)}</span>`;
+                confirmationPlanList.appendChild(li);
+            });
+
+            confirmationPlan.classList.add('show');
+        }
+
+        // =================== STEP 1: PARSE & CONFIRM ===================
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (isSubmitting || isProcessing) return;
+
+            const query = input.value.trim();
+            if (!query) return;
+
+            currentQuery = query;
+            beginRequest();
+            hideAllBoxes();
+
+            try {
+                const parseBody = { query };
+                if (currentParentId) {
+                    parseBody.parent_id = currentParentId;
+                }
+                const response = await fetch('/parse/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(parseBody)
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    showError(data.error || 'Could not understand query.', { query: currentQuery });
+                    endRequest();
+                    return;
+                }
+
+                // Show confirmation
+                confirmedAction = data.interpreted_action;
+                confirmedParams = data.interpreted_params;
+
+                document.getElementById('confirmationMessage').textContent = data.confirmation_message;
+                document.getElementById('confirmAction').textContent = data.interpreted_action;
+                document.getElementById('confirmParams').textContent = JSON.stringify(data.interpreted_params);
+                renderConfirmationPlan(data.tool_plan || []);
+
+                confirmationBox.classList.add('show');
+                // If we're in thread mode, scroll the new confirmation
+                // into view so the user sees their next decision point.
+                if (document.body.classList.contains('thread-active')) {
+                    confirmationBox.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                }
+                isSubmitting = false;
+                if (confirmBtn) confirmBtn.disabled = false;
+
+            } catch (error) {
+                showError(error.message, { query: currentQuery });
+                endRequest();
+            }
+        });
+
+        // =================== STEP 2: EXECUTE WITH STREAMING ===================
+        function executeSearch() {
+            if (isProcessing) return;
+            isProcessing = true;
+            setRequestControlsDisabled(true);
+            hideAllBoxes();
+            progressBox.classList.add('show');
+            document.getElementById('progressSteps').innerHTML = '';
+            updateProgressBar(0);
+            if (document.body.classList.contains('thread-active')) {
+                progressBox.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+
+            const searchParams = {
+                query: currentQuery,
+                action: confirmedAction || '',
+                params: JSON.stringify(confirmedParams || {})
+            };
+            if (currentParentId) {
+                searchParams.parent_id = currentParentId;
+            }
+            const params = new URLSearchParams(searchParams);
+
+            eventSource = new EventSource(`/search/stream/?${params}`);
+
+            eventSource.addEventListener('progress', (e) => {
+                const data = JSON.parse(e.data);
+
+                const icons = {
+                    connecting: '🔌',
+                    connected: '✅',
+                    routing: '🧭',
+                    parsing: '🔍',
+                    planning: '🧠',
+                    tool_call: '🔧',
+                    executing: '⚡',
+                    tool_complete: '✔️',
+                    formatting: '📝',
+                    complete: '🎉',
+                    error: '❌',
+                    disconnected: '👋'
+                };
+
+                addProgressStep(icons[data.stage] || '•', data.message);
+
+                if (data.progress_percent) {
+                    updateProgressBar(data.progress_percent);
+                }
+            });
+
+            eventSource.addEventListener('result', (e) => {
+                const data = JSON.parse(e.data);
+                eventSource.close();
+                progressBox.classList.remove('show');
+                // Stamp the user's query text into the SSE payload so the turn
+                data.user_query = currentQuery;
+                if (data.success === false) {
+                    // Per-turn failure (parsed fine, but search failed). Render
+                    // it as a turn card with the error inline, not as a top-level
+                    // banner — the user can see what they asked for.
+                    appendTurn(data, { recent: true });
+                } else {
+                    appendTurn(data, { recent: true });
+                }
+                // Don't clear currentParentId — appendTurn just set it to the
+                // new turn's ID so the next follow-up chains off this one.
+                threadFollowupInput.value = '';
+                endRequest();
+                threadFollowupInput.focus();
+            });
+
+            eventSource.addEventListener('error_event', (e) => {
+                const data = JSON.parse(e.data);
+                eventSource.close();
+                // Top-level error (the search never ran). Show as banner, not
+                // as a turn card. Leave currentParentId alone — the user may
+                // want to retry the follow-up after fixing whatever broke.
+                showError(data.error || 'An unknown error occurred.', {
+                    query: currentQuery,
+                    action: confirmedAction,
+                    params: confirmedParams
+                });
+                endRequest();
+            });
+
+            eventSource.onerror = () => {
+                if (eventSource.readyState === EventSource.CLOSED) return;
+                eventSource.close();
+                showError('Connection to server was lost.', {
+                    query: currentQuery,
+                    action: confirmedAction,
+                    params: confirmedParams
+                });
+                endRequest();
+            };
+        }
+
+        // =================== THREAD RENDERING (Pass B) ===================
+
+        /**
+         * Append a single turn card to the thread.
+         *
+         * `data` is the SSE result payload from /search/stream/. `opts` controls
+         * how much of the turn we display:
+         *   { recent: true }  — full detail (stats inline, summary expanded,
+         *                       collapsibles for tool calls + raw results)
+         *   { recent: false } — collapsed (question + summary only by default,
+         *                       everything else behind a single "details" expander)
+         *
+         * Mark older turns as not-recent so they fade back. The most recent turn
+         * is the only one with the "is-recent" border accent.
+         */
+        function appendTurn(data, opts = {}) {
+            const isRecent = opts.recent !== false;
+            const author = data.author || null;
+            const createdAt = data.created_at || null;
+
+            // Demote any prior "is-recent" turn — only one card carries the accent.
+            if (isRecent) {
+                threadEl.querySelectorAll('.turn-card.is-recent').forEach(el => {
+                    el.classList.remove('is-recent');
+                });
+            }
+
+            const card = document.createElement('div');
+            card.className = 'turn-card';
+            if (isRecent) card.classList.add('is-recent');
+            if (data.success === false) card.classList.add('is-failed');
+            if (data.id || data.query_id) {
+                card.dataset.queryId = data.id || data.query_id;
+            }
+
+            const queryText = data.user_query || data.query || '';
+            const summary = data.summary || '';
+            const errorText = data.error || '';
+            const rawResults = data.raw_results || {};
+            const toolCalls = data.tool_calls || rawResults.tool_calls || [];
+            const answerSource = data.answer_source || rawResults.answer_source || '';
+            const executionSteps = data.execution_steps || rawResults.execution_steps || toolCalls.map(c => c.tool || c.tool_name).filter(Boolean);
+            const params = data.params || (data.interpreted_params || {});
+
+            // Question header
+            const qHtml = `
+                <div class="turn-q">
+                    <span class="q-tag">Q</span>
+                    <span class="q-text">${escapeHtml(queryText)}</span>
+                </div>
+            `;
+
+            // Meta row. Tool/provider details are shown in stats and tool calls below.
+            const metaPieces = [];
+            if (author) metaPieces.push(`<span class="author">${escapeHtml(author)}</span>`);
+            if (createdAt) {
+                const t = new Date(createdAt);
+                if (!isNaN(t.getTime())) metaPieces.push(t.toLocaleString());
+            }
+            const metaHtml = metaPieces.length
+                ? `<div class="turn-meta">${metaPieces.join('')}</div>`
+                : '';
+
+            // Stats row — only show inline on recent turns
+            let statsHtml = '';
+            if (isRecent && toolCalls.length > 0) {
+                const target = params.username || params.domain || params.domainName
+                    || params.ip || params.target || params.url
+                    || Object.values(params).find(v => typeof v === 'string') || '';
+                let toolLabel = 'No tools';
+                if (toolCalls.length > 0) {
+                    toolLabel = toolCalls.map(formatToolWithServer).join(', ');
+                }
+                statsHtml = `
+                    <div class="turn-stats">
+                        ${target ? `<div class="stat-mini"><span class="label">Target</span>${escapeHtml(String(target))}</div>` : ''}
+                        <div class="stat-mini"><span class="label">${toolCalls.length > 1 ? 'Tools' : 'Tool'}</span>${escapeHtml(toolLabel)}</div>
+                    </div>
+                `;
+            }
+
+            // Body: error box, or markdown summary
+            let bodyHtml = '';
+            if (errorText && data.success === false) {
+                bodyHtml = `<div class="turn-error">${escapeHtml(errorText)}</div>`;
+            } else if (summary) {
+                const infoHtml = answerSource === 'agent_only'
+                    ? `<div class="turn-info">No OSINT tool produced usable output for this answer. The agent answered from the provided context and prior results.</div>`
+                    : '';
+                const formattedSteps = formatExecutionSteps(toolCalls, executionSteps);
+                const stepsHtml = formattedSteps.length
+                    ? `<div class="turn-steps"><span class="label">Steps</span>${escapeHtml(formattedSteps.join(' -> '))}</div>`
+                    : '';
+                bodyHtml = `${infoHtml}${stepsHtml}<div class="turn-summary">${marked.parse(summary)}</div>`;
+            }
+
+            // Collapsible details
+            let detailsHtml = '';
+            if (toolCalls.length > 0) {
+                const toolList = toolCalls.map(tc => {
+                    const ok = tc.success !== false;
+                    const errLine = tc.error
+                        ? `<div style="color:#fca5a5; margin-top:0.25rem; font-family: var(--mono); font-size:0.925rem;">${escapeHtml(tc.error)}</div>`
+                        : '';
+                    return `
+                        <div style="font-family: var(--mono); font-size:0.925rem; background: var(--bg-base); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.75rem; margin-bottom:0.375rem; ${ok ? '' : 'border-color: rgba(239,68,68,0.4);'}">
+                            <span style="color: var(--accent);">${escapeHtml(formatToolWithServer(tc))}</span>
+                            ${errLine}
+                        </div>
+                    `;
+                }).join('');
+
+                detailsHtml += `
+                    <details class="turn-details">
+                        <summary>Tool calls (${toolCalls.length})</summary>
+                        <div class="details-body">${toolList}</div>
+                    </details>
+                `;
+            }
+
+            if (rawResults && Object.keys(rawResults).length > 0) {
+                detailsHtml += `
+                    <details class="turn-details">
+                        <summary>Raw results</summary>
+                        <div class="details-body">
+                            <pre style="background: var(--bg-base); border:1px solid var(--border); border-radius:6px; padding:0.75rem; overflow-x:auto; font-family: var(--mono); font-size:0.875rem; color: var(--text); max-height:400px;">${escapeHtml(JSON.stringify(rawResults, null, 2))}</pre>
+                        </div>
+                    </details>
+                `;
+            }
+
+            // For collapsed (older) turns, hide stats inline and tuck them into details too
+            // — the body of the turn is just question + summary at first glance.
+
+            card.innerHTML = `
+                ${qHtml}
+                ${metaHtml}
+                ${statsHtml}
+                ${bodyHtml}
+                ${detailsHtml}
+            `;
+
+            threadEl.appendChild(card);
+
+            // Reveal the follow-up box the first time anything lands, and
+            // flip the page into "thread mode" so the top search bar hides.
+            threadFollowupEl.style.display = 'block';
+            document.body.classList.add('thread-active');
+
+            // Update thread state for the next follow-up: the just-rendered turn
+            // becomes the new parent unless caller said otherwise.
+            if (isRecent && card.dataset.queryId) {
+                currentParentId = card.dataset.queryId;
+            }
+
+            // Smart auto-scroll: only scroll if the user is already near the
+            // bottom. If they've scrolled up to read prior turns, don't yank.
+            maybeAutoScroll(card);
+        }
+
+        function maybeAutoScroll(targetEl) {
+            const fromBottom = (document.documentElement.scrollHeight - window.innerHeight) - window.scrollY;
+            if (fromBottom < 400) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function clearThread() {
+            threadEl.innerHTML = '';
+            threadFollowupEl.style.display = 'none';
+            threadFollowupInput.value = '';
+            document.body.classList.remove('thread-active');
+            currentParentId = null;
+        }
+
+        /**
+         * On handoff from /workspace/q/<id>/, fetch the parent's ancestor chain
+         * from /thread/<id>/ and render those turns as collapsed cards before
+         * the new query runs. Returns a promise so the caller can await.
+         */
+        async function loadThreadFromHandoff(parentId) {
+            try {
+                const r = await fetch(`/thread/${parentId}/`);
+                if (!r.ok) return;
+                const data = await r.json();
+                const turns = (data && data.turns) || [];
+                turns.forEach(t => appendTurn(t, { recent: false }));
+            } catch (err) {
+                console.warn('Failed to load thread history:', err);
+            }
+        }
+
+        // =================== NAV ===================
+        function editQuery() {
+            hideAllBoxes();
+            endRequest();
+            input.focus();
+            input.select();
+        }
+
+        function cancelSearch() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            hideAllBoxes();
+            endRequest();
+        }
+
+        function detachLiveSearchStream() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
+        window.addEventListener('pagehide', detachLiveSearchStream);
+        window.addEventListener('beforeunload', detachLiveSearchStream);
+    </script>
+    {% if user.is_authenticated %}
+    <script>
+        (function () {
+            const toggle = document.getElementById('contextToggle');
+            if (!toggle) return;
+            const label = document.getElementById('contextToggleLabel');
+
+            function getCookie(name) {
+                const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]+)'));
+                return match ? decodeURIComponent(match[2]) : null;
+            }
+
+            toggle.addEventListener('click', async () => {
+                try {
+                    const resp = await fetch('/api/extension/toggle/', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'X-CSRFToken': getCookie('csrftoken') || '' },
+                    });
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    if (data.context_aware_enabled) {
+                        toggle.classList.add('active');
+                        label.textContent = 'Context ON';
+                    } else {
+                        toggle.classList.remove('active');
+                        label.textContent = 'Context OFF';
+                    }
+                } catch (e) {
+                    // silent — extension may not be installed yet
+                }
+            });
+        })();
+    </script>
+    {% endif %}
+
+    {% if user.is_authenticated and active_team %}
+    <script>
+        (function () {
+            const bellBtn = document.getElementById('bellBtn');
+            if (!bellBtn) return;  // Defensive — element may be hidden by template
+
+            const bellBadge = document.getElementById('bellBadge');
+            const bellDropdown = document.getElementById('bellDropdown');
+            const bellEmpty = document.getElementById('bellEmpty');
+
+            function getCookie(name) {
+                const match = document.cookie.match(
+                    new RegExp('(^|;\\s*)' + name + '=([^;]+)')
+                );
+                return match ? decodeURIComponent(match[2]) : null;
+            }
+
+            function escapeHtml(s) {
+                return String(s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            // Local unread count — single source of truth for the badge.
+            // The poller refreshes it from the server, but click handlers
+            // can decrement it instantly so the UI feels responsive.
+            let unreadCount = 0;
+
+            function setBadge(n) {
+                unreadCount = Math.max(0, n);
+                if (unreadCount > 0) {
+                    bellBadge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+                    bellBadge.style.display = 'flex';
+                } else {
+                    bellBadge.style.display = 'none';
+                }
+            }
+
+            async function fetchNotifications() {
+                try {
+                    const resp = await fetch('/notifications/', {
+                        credentials: 'same-origin',
+                    });
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    renderNotifications(data);
+                } catch (e) {
+                    // Silent — retry next interval.
+                }
+            }
+
+            function renderNotifications(data) {
+                setBadge(data.unread_count || 0);
+
+                bellDropdown.querySelectorAll('.bell-item').forEach(el => el.remove());
+
+                if (unreadCount === 0) {
+                    bellEmpty.style.display = 'block';
+                    return;
+                }
+                bellEmpty.style.display = 'none';
+
+                data.notifications.forEach(n => {
+                    const item = document.createElement('a');
+                    item.className = 'bell-item';
+                    item.href = '/workspace/q/' + n.query_id + '/';
+                    item.dataset.notifId = n.id;
+                    item.innerHTML =
+                        '<div class="qtext">' + escapeHtml(n.query_text) + '</div>' +
+                        '<div class="meta"><span class="author">' +
+                        escapeHtml(n.author) + '</span> · ' +
+                        new Date(n.created_at).toLocaleString() + '</div>';
+
+                    item.addEventListener('click', (e) => {
+                        // Update UI immediately so the user sees feedback,
+                        // even before the server confirms.
+                        setBadge(unreadCount - 1);
+                        item.remove();
+                        if (unreadCount === 0) bellEmpty.style.display = 'block';
+
+                        // keepalive lets the request finish even though we're
+                        // navigating away on the same click — without this,
+                        // browsers often abort fire-and-forget POSTs and the
+                        // badge appears to "come back" on the next poll.
+                        fetch('/notifications/' + n.id + '/read/', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            keepalive: true,
+                            headers: {
+                                'X-CSRFToken': getCookie('csrftoken') || '',
+                            },
+                        }).catch(() => {});  // never block the click
+                    });
+                    bellDropdown.appendChild(item);
+                });
+            }
+
+            bellBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                bellDropdown.classList.toggle('show');
+            });
+            document.addEventListener('click', (e) => {
+                if (!bellDropdown.contains(e.target) && e.target !== bellBtn) {
+                    bellDropdown.classList.remove('show');
+                }
+            });
+
+            fetchNotifications();
+            setInterval(fetchNotifications, 30000);
+        })();
+    </script>
+    {% endif %}
+</body>
+</html>

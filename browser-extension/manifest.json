@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "OSINT Context Assistant",
+  "version": "1.0.0",
+  "description": "Captures browsing context for the OSINT Research Platform to enable context-aware research.",
+
+  "permissions": [
+    "tabs",
+    "storage",
+    "sidePanel",
+    "webNavigation",
+    "activeTab",
+    "cookies"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "exclude_matches": [
+        "http://localhost:8000/*",
+        "http://localhost:8001/*",
+        "http://127.0.0.1:8000/*",
+        "http://127.0.0.1:8001/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+
+  "action": {
+    "default_title": "Open OSINT Context Panel"
+  }
+}

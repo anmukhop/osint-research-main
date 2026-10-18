@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSINT Context</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-title">
+      <span class="header-dot" id="statusDot"></span>
+      OSINT Context
+    </div>
+    <button class="icon-btn" id="refreshBtn" title="Refresh">&#8635;</button>
+  </header>
+
+  <!-- Auth status -->
+  <div class="auth-card" id="authCard">
+    <div class="auth-row">
+      <span class="label">User</span>
+      <span class="value" id="authUser">—</span>
+    </div>
+    <div class="auth-row">
+      <span class="label">Team</span>
+      <span class="value" id="authTeam">—</span>
+    </div>
+    <div class="auth-row">
+      <span class="label">Capture</span>
+      <span class="value" id="captureStatus">—</span>
+    </div>
+  </div>
+
+  <!-- Not logged in notice -->
+  <div class="notice" id="notLoggedIn" style="display:none;">
+    <p>Not logged in to the OSINT platform.</p>
+    <p>Log in at <a id="appLink" href="#" target="_blank">https://osint-research-production.up.railway.app/</a> and enable Context mode to start capturing.</p>
+  </div>
+
+  <!-- Event list controls -->
+  <div class="controls" id="controls" style="display:none;">
+    <span class="events-count" id="eventsCount">0 events</span>
+    <div class="controls-right">
+      <button class="text-btn" id="remoteBtn">Load from server</button>
+      <button class="text-btn danger" id="clearBtn">Clear</button>
+    </div>
+  </div>
+
+  <!-- Events feed -->
+  <div class="feed" id="feed">
+    <div class="empty-state" id="emptyState">
+      No browsing events yet.<br>
+      Enable Context mode on the web app and browse some pages.
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="settings-row">
+    <input type="text" id="appUrlInput" placeholder="https://osint-research-production.up.railway.app/" class="url-input">
+    <button class="text-btn" id="saveUrlBtn">Save</button>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

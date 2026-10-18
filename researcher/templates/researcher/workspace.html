@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ active_team.name }} workspace · OSINT Research Tool</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep: #080c14;
+      --bg-primary: #0c1220;
+      --bg-card: #111927;
+      --bg-elevated: #182035;
+      --border: #1e2d4a;
+      --accent: #3b6cf6;
+      --accent-bright: #6b93ff;
+      --success: #22c55e;
+      --success-bg: #0d2818;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --text: #e4e9f1;
+      --text-sec: #7a8baa;
+      --text-muted: #4a5877;
+      --mono: 'JetBrains Mono', 'Courier New', monospace;
+      --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg-deep);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 115%;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ---- Three-column workspace layout ---- */
+    .page {
+      display: grid;
+      grid-template-columns: 330px minmax(0, 1fr) 380px;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+    }
+
+    /* Two-column when context panel is hidden */
+    .page.no-context-panel {
+      grid-template-columns: 330px minmax(0, 1fr);
+    }
+
+    /* ---- Top bar spans both columns ---- */
+    .topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.25rem 1.75rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-card);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .topbar-left { display: flex; align-items: baseline; gap: 1rem; }
+    .topbar h1 { color: var(--accent-bright); font-size: 1.25rem; font-weight: 600; }
+    .topbar .sub {
+      color: var(--text-muted); font-size: 0.8125rem;
+    }
+    .topbar .sub code {
+      background: var(--bg-elevated); padding: 0.1rem 0.4rem;
+      border-radius: 4px; font-family: var(--mono); font-size: 0.75rem;
+    }
+
+    .topbar-right {
+      display: flex; align-items: center; gap: 0.875rem; font-size: 0.875rem;
+    }
+    .topbar-right a {
+      color: var(--text-sec); text-decoration: none; padding: 0.375rem 0.75rem;
+      border-radius: 6px; border: 1px solid var(--border); background: var(--bg-elevated);
+      transition: all 0.15s;
+    }
+    .topbar-right a:hover { color: var(--text); border-color: var(--accent); }
+    .topbar-right a.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    .topbar-right a.primary:hover { background: var(--accent-bright); border-color: var(--accent-bright); }
+    .topbar-right form { display: inline; }
+    .topbar-right form button {
+      background: none; border: none; color: var(--text-sec);
+      font: inherit; font-size: 0.875rem; cursor: pointer; padding: 0;
+    }
+    .topbar-right form button:hover { color: var(--text); }
+
+    /* ---- Left column: query history ---- */
+    .history-col {
+      padding: 1.25rem;
+      overflow-y: auto;
+      border-right: 1px solid var(--border);
+    }
+
+    .section-label {
+      font-size: 1.375rem; font-family: var(--mono); text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text); margin-bottom: 1rem;
+    }
+
+    .query-row {
+      display: block; text-decoration: none; color: inherit;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 0.625rem;
+      transition: border-color 0.15s;
+    }
+    .query-row:hover { border-color: var(--accent); }
+    .query-row.active { border-color: var(--accent-bright); background: #14213a; }
+    .query-row .qtext {
+      font-size: 0.9375rem; margin-bottom: 0.5rem; line-height: 1.4;
+      overflow-wrap: anywhere; word-break: break-word;
+      hyphens: auto; -webkit-hyphens: auto;
+    }
+    .query-row .qmeta {
+      font-size: 0.775rem; color: var(--text-sec);
+      display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;
+    }
+    .query-row .qmeta .author { color: var(--accent-bright); font-weight: 500; }
+    .badge {
+      padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.6875rem;
+      text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--mono);
+    }
+    .badge.ok { background: var(--success-bg); color: var(--success); }
+    .badge.running { background: #172033; color: #dbeafe; }
+    .badge.fail { background: #2a1215; color: #fca5a5; }
+
+    .empty-history {
+      text-align: center; padding: 3rem 1rem; color: var(--text-muted);
+      background: var(--bg-card); border: 1px dashed var(--border); border-radius: 10px;
+      font-size: 0.9rem;
+    }
+
+    /* ---- Middle column: active query and results ---- */
+    .detail-col {
+      padding: 1.5rem;
+      overflow-y: auto;
+      min-width: 0;
+    }
+    .workspace-search {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1rem; margin-bottom: 1rem;
+    }
+    .workspace-search h2 {
+      color: var(--accent-bright); font-size: 1rem; margin-bottom: 0.75rem;
+      font-weight: 600;
+    }
+    .search-row { display: flex; gap: 0.625rem; }
+    .search-input {
+      flex: 1; min-width: 0; background: var(--bg-deep); color: var(--text);
+      border: 1px solid var(--border); border-radius: 7px;
+      padding: 0.7rem 0.85rem; font: inherit; font-size: 0.925rem;
+    }
+    textarea.search-input {
+      min-height: 5.5rem;
+      line-height: 1.45;
+      resize: vertical;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .search-input:focus { outline: none; border-color: var(--accent-bright); }
+    .search-btn, .secondary-btn, .danger-btn {
+      border: none; border-radius: 7px; padding: 0.7rem 1rem;
+      font: inherit; font-weight: 600; cursor: pointer;
+    }
+    .search-btn { background: var(--accent); color: white; }
+    .search-btn:hover { background: var(--accent-bright); }
+    .search-btn:disabled, .secondary-btn:disabled {
+      background: #24324f; color: #6f7f9f; cursor: not-allowed;
+    }
+    .secondary-btn {
+      background: var(--bg-elevated); color: var(--text-sec);
+      border: 1px solid var(--border);
+    }
+    .danger-btn { background: #2a1215; color: #fca5a5; border: 1px solid #ef444466; }
+    .confirmation-box, .progress-box, .error-box {
+      display: none; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1rem; margin-bottom: 1rem;
+    }
+    .confirmation-box.show, .progress-box.show, .error-box.show { display: block; }
+    .confirmation-message { color: var(--text); line-height: 1.5; margin-bottom: 0.75rem; }
+    .confirmation-details {
+      display: flex; flex-wrap: wrap; gap: 0.75rem; color: var(--text-sec);
+      font-size: 0.85rem; margin-bottom: 0.75rem;
+    }
+    .confirmation-details code {
+      background: var(--bg-elevated); color: var(--accent-bright);
+      padding: 0.1rem 0.4rem; border-radius: 4px; font-family: var(--mono);
+    }
+    .confirmation-plan {
+      border-top: 1px solid var(--border); padding-top: 0.75rem; margin-top: 0.75rem;
+      display: none;
+    }
+    .confirmation-plan.show { display: block; }
+    .confirmation-plan-title {
+      color: var(--text); font-size: 0.85rem; font-weight: 700; margin-bottom: 0.5rem;
+    }
+    .confirmation-plan-list {
+      list-style: none; display: grid; gap: 0.4rem; color: var(--text-sec);
+      font-size: 0.85rem;
+    }
+    .confirmation-plan-list strong { color: var(--text); }
+    .confirmation-buttons { display: flex; gap: 0.5rem; margin-top: 0.875rem; }
+    .progress-step {
+      display: flex; gap: 0.5rem; padding: 0.35rem 0; color: var(--text-sec);
+      border-bottom: 1px solid rgba(30,45,74,0.4); font-size: 0.875rem;
+    }
+    .progress-step:last-child { border-bottom: none; }
+    .detail-panel {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;
+    }
+    .detail-panel .section-label,
+    .detail-panel summary.section-label {
+      color: var(--text);
+    }
+    .detail-empty {
+      min-height: 280px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center;
+      color: var(--text-sec); line-height: 1.6;
+    }
+    .detail-title {
+      color: var(--accent-bright); font-size: 1.25rem; line-height: 1.35;
+      margin-bottom: 0.5rem; word-break: break-word;
+    }
+    .detail-meta {
+      color: var(--text-sec); font-size: 0.825rem; margin-bottom: 1rem;
+      display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;
+    }
+    .detail-meta .author { color: var(--accent-bright); font-weight: 500; }
+    .summary-md { color: var(--text); line-height: 1.65; }
+    .summary-md h1, .summary-md h2, .summary-md h3 {
+      color: var(--accent-bright); margin: 1rem 0 0.5rem;
+    }
+    .summary-md code {
+      background: var(--bg-elevated); padding: 0.125rem 0.375rem;
+      border-radius: 4px; font-family: var(--mono); font-size: 0.85rem;
+    }
+    .summary-md a { color: #8aabff; word-break: break-all; }
+    .query-error {
+      background: #2a1215; color: #fecaca; padding: 0.875rem 1rem;
+      border-radius: 8px; border: 1px solid #ef444433;
+    }
+    .query-info {
+      background: #172033; color: #dbeafe; padding: 0.875rem 1rem;
+      border-radius: 8px; border: 1px solid rgba(107,147,255,0.35);
+      line-height: 1.5;
+    }
+    .query-steps {
+      background: var(--bg-elevated); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.875rem 1rem; line-height: 1.5;
+    }
+    .query-steps .label {
+      font-family: var(--mono); text-transform: uppercase;
+      letter-spacing: 0.06em; margin-right: 0.5rem;
+    }
+    .tool-call {
+      font-family: var(--mono); font-size: calc(0.8rem + 2pt);
+      background: var(--bg-deep); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.625rem 0.875rem; margin-bottom: 0.5rem; color: #b6c2d9;
+    }
+    .tool-call .tname { color: var(--accent-bright); }
+    .tool-call.failed { border-color: #ef444466; }
+    .raw-pre {
+      background: var(--bg-deep); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.875rem; overflow-x: auto;
+      font-family: var(--mono); font-size: 0.78rem; color: #b6c2d9;
+      max-height: 400px; white-space: pre;
+    }
+    .followup-row { display: flex; gap: 0.5rem; }
+    .running-note { color: #d7e1ff; margin: 0; line-height: 1.5; }
+
+    /* ---- Right column: browsing context ---- */
+    .context-col {
+      background: var(--bg-primary);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .context-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+      background: var(--bg-card); position: sticky; top: 0; z-index: 10;
+    }
+    .context-header h2 {
+      font-size: calc(0.875rem + 2pt); font-weight: 600; display: flex; align-items: center; gap: 0.5rem;
+    }
+    .context-header h2 .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+      box-shadow: 0 0 6px var(--success); flex-shrink: 0;
+    }
+    .context-header h2 .dot.inactive { background: var(--text-muted); box-shadow: none; }
+
+    .refresh-btn {
+      background: none; border: 1px solid var(--border); color: var(--text-sec);
+      font-size: calc(0.75rem + 2pt); font-family: inherit; padding: 0.3rem 0.75rem;
+      border-radius: 6px; cursor: pointer; transition: all 0.15s;
+    }
+    .refresh-btn:hover { color: var(--text); border-color: var(--accent); }
+    .refresh-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .context-body { padding: 1rem 1.25rem; flex: 1; }
+    .refresh-note {
+      color: var(--text-sec); font-size: calc(0.75rem + 2pt); line-height: 1.4;
+      margin-bottom: 1rem;
+    }
+
+    /* Overview card */
+    .overview-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.875rem 1rem; margin-bottom: 1rem;
+      font-size: calc(0.8125rem + 2pt); color: var(--text-sec); line-height: 1.6;
+    }
+
+    /* Section within context panel */
+    .ctx-section { margin-bottom: 1.25rem; }
+    .ctx-section-title {
+      font-size: calc(0.875rem + 2pt); font-family: var(--mono); text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--text); margin-bottom: 0.625rem;
+      display: flex; align-items: center; gap: 0.375rem;
+    }
+
+    /* Tag pill */
+    .pill-row { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+    .pill {
+      font-size: calc(0.75rem + 2pt); font-family: var(--mono);
+      padding: 0.2rem 0.6rem; border-radius: 5px; border: 1px solid;
+    }
+    .pill.common-site { background: rgba(59,108,246,0.1); border-color: rgba(59,108,246,0.3); color: var(--accent-bright); }
+    .pill.common-search { background: rgba(34,197,94,0.08); border-color: rgba(34,197,94,0.25); color: var(--success); }
+    .pill.unique { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.25); color: var(--warning); }
+
+    .user-attribution {
+      font-size: calc(0.6875rem + 2pt); color: var(--text-muted); margin-left: 0.25rem;
+    }
+
+    /* Per-user breakdown */
+    .user-block {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.5rem;
+    }
+    .user-block-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.5rem; cursor: pointer;
+    }
+    .user-block-name {
+      font-size: calc(0.8125rem + 2pt); font-weight: 600; color: var(--accent-bright);
+    }
+    .user-focus {
+      font-size: calc(0.75rem + 2pt); color: var(--text-sec); line-height: 1.45;
+      margin-bottom: 0.5rem; font-style: italic;
+    }
+    .user-block-items { font-size: calc(0.75rem + 2pt); color: var(--text-sec); }
+    .user-block-items .item-row {
+      display: flex; align-items: baseline; gap: 0.375rem;
+      padding: 0.15rem 0; border-bottom: 1px solid rgba(30,45,74,0.4);
+    }
+    .user-block-items .item-row:last-child { border-bottom: none; }
+    .item-type {
+      font-size: calc(0.625rem + 2pt); font-family: var(--mono); text-transform: uppercase;
+      color: var(--text-muted); width: 32px; flex-shrink: 0;
+    }
+
+    /* AI suggestion */
+    .suggestion-card {
+      background: var(--bg-card); border: 1px solid rgba(59,108,246,0.3);
+      border-radius: 8px; padding: 0.875rem 1rem; margin-bottom: 0.625rem;
+    }
+    .suggestion-card .s-label {
+      font-size: calc(0.625rem + 2pt); font-family: var(--mono); text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--text); margin-bottom: 0.375rem;
+    }
+    .suggestion-card .s-tool {
+      font-size: calc(0.6875rem + 2pt); font-family: var(--mono);
+      background: var(--bg-elevated); color: var(--accent-bright);
+      padding: 0.1rem 0.4rem; border-radius: 3px; margin-bottom: 0.375rem;
+      display: inline-block;
+    }
+    .suggestion-card .s-query {
+      font-size: calc(0.8125rem + 2pt); color: var(--text); line-height: 1.45;
+      margin-bottom: 0.5rem;
+    }
+    .suggestion-card .s-analysis {
+      font-size: calc(0.75rem + 2pt); color: var(--text); line-height: 1.45;
+      margin-bottom: 0.625rem;
+    }
+    .suggestion-card .s-recommended {
+      display: inline-block; font-size: calc(0.625rem + 2pt); font-family: var(--mono);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      background: rgba(34,197,94,0.12); color: var(--success);
+      border: 1px solid rgba(34,197,94,0.3);
+      border-radius: 4px; padding: 0.1rem 0.4rem; margin-left: 0.375rem;
+    }
+    .try-btn {
+      display: inline-block; font-size: calc(0.75rem + 2pt); font-family: inherit;
+      background: var(--accent); color: white; border: none;
+      border-radius: 5px; padding: 0.3rem 0.75rem; cursor: pointer;
+      text-decoration: none; transition: background 0.15s;
+    }
+    .try-btn:hover { background: var(--accent-bright); }
+
+    .no-context {
+      padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: calc(0.85rem + 2pt);
+      line-height: 1.7;
+    }
+
+    /* Notifications bell */
+    .bell-wrap { position: relative; display: inline-block; }
+    .bell-btn {
+      background: none; border: none; cursor: pointer; color: var(--text-sec);
+      font-size: 1.1rem; padding: 0.25rem 0.5rem; line-height: 1;
+      position: relative; font-family: inherit;
+    }
+    .bell-btn:hover { color: var(--text); }
+    .bell-badge {
+      position: absolute; top: -2px; right: -2px;
+      background: #ef4444; color: white; font-size: 0.65rem; font-weight: 600;
+      min-width: 1rem; height: 1rem; padding: 0 0.25rem;
+      border-radius: 999px; display: flex; align-items: center; justify-content: center;
+      line-height: 1;
+    }
+    .bell-dropdown {
+      display: none; position: absolute; top: calc(100% + 0.5rem); right: 0;
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+      min-width: 320px; max-width: 380px; max-height: 400px; overflow-y: auto;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 200;
+    }
+    .bell-dropdown.show { display: block; }
+    .bell-dropdown .empty { padding: 1.25rem 1rem; color: var(--text-muted); font-size: 0.85rem; text-align: center; }
+    .bell-item {
+      display: block; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+      color: var(--text); text-decoration: none; cursor: pointer; transition: background 0.1s;
+    }
+    .bell-item:last-child { border-bottom: none; }
+    .bell-item:hover { background: var(--bg-elevated); }
+    .bell-item .qtext { font-size: 0.875rem; line-height: 1.35; margin-bottom: 0.25rem; }
+    .bell-item .meta { font-size: 0.75rem; color: var(--text-sec); }
+    .bell-item .meta .author { color: var(--accent-bright); }
+    .bell-item .meta .suggestion-tag {
+      font-size: 0.6rem; font-family: var(--mono); text-transform: uppercase;
+      background: rgba(59,108,246,0.15); color: var(--accent-bright);
+      padding: 0.1rem 0.35rem; border-radius: 3px; letter-spacing: 0.05em;
+    }
+
+    /* Context-aware toggle — lives in the topbar */
+    .context-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      color: var(--text-sec);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.375rem 0.75rem;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s ease;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .context-toggle:hover { border-color: var(--accent); color: var(--text); }
+    .context-toggle.active { border-color: var(--success); background: rgba(34,197,94,0.08); color: var(--success); }
+
+    .toggle-switch {
+      width: 26px; height: 15px; border-radius: 999px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      position: relative; flex-shrink: 0; transition: background 0.2s, border-color 0.2s;
+    }
+    .context-toggle.active .toggle-switch { background: var(--success); border-color: var(--success); }
+
+    .toggle-knob {
+      position: absolute; top: 1px; left: 1px;
+      width: 11px; height: 11px; border-radius: 50%;
+      background: var(--text-muted); transition: transform 0.2s, background 0.2s;
+    }
+    .context-toggle.active .toggle-knob { transform: translateX(11px); background: white; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    @media (max-width: 900px) {
+      .page { grid-template-columns: 1fr; }
+      .context-col { border-top: 1px solid var(--border); }
+      .history-col { border-right: none; }
+      .detail-col { border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+<div class="page {% if not context_aware_enabled %}no-context-panel{% endif %}" id="page">
+
+  <!-- =================== TOP BAR =================== -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1>{{ active_team.name }}</h1>
+      <span class="sub">
+        {{ member_count }} member{{ member_count|pluralize }} ·
+        Invite <code>{{ active_team.invite_code }}</code>
+      </span>
+    </div>
+    <div class="topbar-right">
+      <button class="context-toggle {% if context_aware_enabled %}active{% endif %}"
+              id="contextToggle"
+              title="Toggle context-aware browsing capture">
+        <span class="toggle-switch"><span class="toggle-knob"></span></span>
+        <span id="contextToggleLabel">Context {% if context_aware_enabled %}ON{% else %}OFF{% endif %}</span>
+      </button>
+      <a href="https://osint-research-production.up.railway.app/" class="primary" id="newWorkspaceQuery">+ New search</a>
+      <a href="{% url 'teams_list' %}">My teams</a>
+      <span class="bell-wrap">
+        <button class="bell-btn" id="bellBtn" type="button" aria-label="Notifications">
+          🔔
+          <span class="bell-badge" id="bellBadge" style="display:none;">0</span>
+        </button>
+        <div class="bell-dropdown" id="bellDropdown" role="menu">
+          <div class="empty" id="bellEmpty">No new notifications</div>
+        </div>
+      </span>
+      <form method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button type="submit">Log out</button>
+      </form>
+    </div>
+  </header>
+
+  <!-- =================== LEFT: SEARCH HISTORY =================== -->
+  <main class="history-col">
+    <div class="section-label">Recent searches</div>
+    {% if queries %}
+      {% for q in queries %}
+        <a class="query-row" href="?query_id={{ q.id }}" data-query-id="{{ q.id }}">
+          <div class="qtext">{{ q.user_query }}</div>
+          <div class="qmeta">
+            <span class="author">{% if q.user %}{{ q.user.username }}{% else %}AI Research Assistant{% endif %}</span>
+            <span>{{ q.created_at|date:"M j, Y" }}</span>
+            {% if q.interpreted_action %}<span>{{ q.interpreted_action }}</span>{% endif %}
+            {% if q.success %}
+              <span class="badge ok">ok</span>
+            {% elif not q.error and not q.duration_ms %}
+              <span class="badge running">running</span>
+            {% else %}
+              <span class="badge fail">failed</span>
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    {% else %}
+      <div class="empty-history">
+        No searches yet. Run one and your team will see it here.
+      </div>
+    {% endif %}
+  </main>
+
+  <!-- =================== MIDDLE: ACTIVE QUERY + NEW QUERY =================== -->
+  <section class="detail-col" id="detailCol">
+    <div class="workspace-search" id="new-query">
+      <h2>Run a new query</h2>
+      <form id="workspaceSearchForm">
+        <div class="search-row">
+          <textarea class="search-input"
+                    id="workspaceQueryInput"
+                    placeholder="Ask an OSINT question for this team..."
+                    autocomplete="off"></textarea>
+          <button class="search-btn" id="workspaceSearchBtn" type="submit">Send</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="confirmation-box" id="confirmationBox">
+      <div class="confirmation-message" id="confirmationMessage"></div>
+      <div class="confirmation-details">
+        <span>Tool: <code id="confirmAction"></code></span>
+        <span>Params: <code id="confirmParams"></code></span>
+      </div>
+      <div class="confirmation-plan" id="confirmationPlan">
+        <div class="confirmation-plan-title">Execution plan</div>
+        <ul class="confirmation-plan-list" id="confirmationPlanList"></ul>
+      </div>
+      <div class="confirmation-buttons">
+        <button class="search-btn" id="confirmBtn" type="button">Run Search</button>
+        <button class="secondary-btn" id="editBtn" type="button">Edit</button>
+        <button class="danger-btn" id="cancelBtn" type="button">Cancel</button>
+      </div>
+    </div>
+
+    <div class="progress-box" id="progressBox">
+      <div class="detail-meta" style="justify-content:space-between; margin-bottom:0.5rem;">
+        <span>Running query...</span>
+        <button class="danger-btn" id="cancelStreamBtn" type="button">Cancel view</button>
+      </div>
+      <div id="progressSteps"></div>
+    </div>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <div id="detailPane"></div>
+  </section>
+
+  <!-- =================== RIGHT: TEAM CONTEXT (only when context ON) =================== -->
+  {% if context_aware_enabled %}
+  <aside class="context-col" id="contextCol">
+    <div class="context-header">
+      <h2>
+        {% if browsing_summary and not browsing_summary.no_events %}
+          <span class="dot"></span>
+        {% else %}
+          <span class="dot inactive"></span>
+        {% endif %}
+        Team Context
+      </h2>
+      <button class="refresh-btn" id="refreshCtxBtn">↻ Refresh</button>
+    </div>
+
+    <div class="context-body" id="contextBody">
+      <div class="refresh-note">
+        AI suggestions refresh every 3 minutes when new browsing exists. Use Refresh to check recent browsing and run a new AI query based on recent activity.
+      </div>
+      {% if not browsing_summary or browsing_summary.no_events %}
+        <div class="no-context">
+          No browsing events yet.<br>
+          Install the browser extension, enable Context mode on the home page,
+          and browse some research-related sites.
+        </div>
+      {% else %}
+        <!-- Overview -->
+        {% if browsing_summary.overview %}
+          <div class="overview-card">{{ browsing_summary.overview }}</div>
+        {% endif %}
+
+        <!-- Common search themes -->
+        {% if browsing_summary.common_search_themes %}
+          <div class="ctx-section">
+            <div class="ctx-section-title">🔍 Common search themes</div>
+            <div class="pill-row">
+              {% for theme in browsing_summary.common_search_themes %}
+                <span class="pill common-search">{{ theme }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+
+        <!-- AI suggestion -->
+        {% if browsing_summary.suggestions %}
+          <div class="ctx-section">
+            <div class="ctx-section-title">💡 AI Suggestion</div>
+            {% for s in browsing_summary.suggestions %}
+              <div class="suggestion-card">
+                <div class="s-label">
+                  AI suggestion {{ forloop.counter }}
+                  {% if s.recommended %}<span class="s-recommended">Auto-ran</span>{% endif %}
+                </div>
+                {% if s.tool %}<span class="s-tool">{{ s.tool }}</span>{% endif %}
+                <div class="s-query">{{ s.query }}</div>
+                {% if s.relevance_analysis %}
+                  <div class="s-analysis">{{ s.relevance_analysis }}</div>
+                {% elif s.reason %}
+                  <div class="s-analysis">{{ s.reason }}</div>
+                {% endif %}
+                {% if s.recommended and browsing_summary.auto_run_query_id %}
+                  <a class="try-btn" href="?query_id={{ browsing_summary.auto_run_query_id }}" data-query-id="{{ browsing_summary.auto_run_query_id }}">
+                    View AI result →
+                  </a>
+                {% else %}
+                  <a class="try-btn"
+                     href="#new-query"
+                     data-suggested-query="{{ s.query }}">
+                    Try this query →
+                  </a>
+                {% endif %}
+              </div>
+            {% endfor %}
+            {% if browsing_summary.auto_run_error %}
+              <div class="no-context">AI auto-run failed: {{ browsing_summary.auto_run_error }}</div>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        <!-- Per-user breakdown (collapsible) -->
+        {% if browsing_summary.per_user %}
+          <div class="ctx-section">
+            <div class="ctx-section-title">👤 Per-user breakdown</div>
+            {% for uname, udata in browsing_summary.per_user.items %}
+              <div class="user-block">
+                <div class="user-block-name">{{ uname }}</div>
+                {% if udata.focus %}
+                  <div class="user-focus">{{ udata.focus }}</div>
+                {% endif %}
+                <div class="user-block-items">
+                  {% for site in udata.sites|slice:":6" %}
+                    <div class="item-row">
+                      <span class="item-type">site</span>
+                      <span>{{ site }}</span>
+                    </div>
+                  {% endfor %}
+                  {% for search in udata.searches|slice:":4" %}
+                    <div class="item-row">
+                      <span class="item-type">srch</span>
+                      <span style="color:#22c55e; font-style:italic;">"{{ search }}"</span>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </aside>
+  {% endif %}
+
+</div><!-- .page -->
+
+{{ query_payloads|json_script:"workspace-query-data" }}
+{{ selected_query_id|json_script:"selected-query-id" }}
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- CSRF helper ----
+  function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : null;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  const initialQueries = JSON.parse(document.getElementById('workspace-query-data').textContent || '[]');
+  const selectedQueryId = JSON.parse(document.getElementById('selected-query-id').textContent || 'null');
+  const queriesById = new Map(initialQueries.map(q => [String(q.id), q]));
+  const detailPane = document.getElementById('detailPane');
+  const searchForm = document.getElementById('workspaceSearchForm');
+  const queryInput = document.getElementById('workspaceQueryInput');
+  const searchBtn = document.getElementById('workspaceSearchBtn');
+  const confirmationBox = document.getElementById('confirmationBox');
+  const confirmationMessage = document.getElementById('confirmationMessage');
+  const confirmAction = document.getElementById('confirmAction');
+  const confirmParams = document.getElementById('confirmParams');
+  const confirmationPlan = document.getElementById('confirmationPlan');
+  const confirmationPlanList = document.getElementById('confirmationPlanList');
+  const confirmBtn = document.getElementById('confirmBtn');
+  const editBtn = document.getElementById('editBtn');
+  const cancelBtn = document.getElementById('cancelBtn');
+  const cancelStreamBtn = document.getElementById('cancelStreamBtn');
+  const progressBox = document.getElementById('progressBox');
+  const progressSteps = document.getElementById('progressSteps');
+  const errorBox = document.getElementById('errorBox');
+  let currentQuery = '';
+  let confirmedAction = null;
+  let confirmedParams = null;
+  let currentParentId = null;
+  let eventSource = null;
+  let isBusy = false;
+
+  function setBusy(disabled) {
+    isBusy = disabled;
+    searchBtn.disabled = disabled;
+    confirmBtn.disabled = disabled;
+  }
+
+  function hideWorkflowBoxes() {
+    confirmationBox.classList.remove('show');
+    progressBox.classList.remove('show');
+    errorBox.classList.remove('show');
+    errorBox.textContent = '';
+    renderConfirmationPlan([]);
+  }
+
+  function statusBadge(q) {
+    if (q.success) return '<span class="badge ok">ok</span>';
+    if (!q.error && !q.duration_ms) return '<span class="badge running">running</span>';
+    return '<span class="badge fail">failed</span>';
+  }
+
+  function formatToolWithServer(call) {
+    const name = call.tool || call.tool_name || 'unknown';
+    const serverName = call.server || call.server_name || '';
+    return serverName ? `${name} [${serverName}]` : name;
+  }
+
+  function formatExecutionSteps(toolCalls, fallbackSteps) {
+    if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+      return toolCalls.map(formatToolWithServer);
+    }
+    return Array.isArray(fallbackSteps) ? fallbackSteps : [];
+  }
+
+  function renderConfirmationPlan(toolPlan) {
+    confirmationPlanList.innerHTML = '';
+    if (!Array.isArray(toolPlan) || toolPlan.length === 0) {
+      confirmationPlan.classList.remove('show');
+      return;
+    }
+    toolPlan.forEach((item, index) => {
+      const li = document.createElement('li');
+      const params = item.params && Object.keys(item.params).length
+        ? ` Params: ${JSON.stringify(item.params)}`
+        : '';
+      li.innerHTML = `<strong>${index + 1}. ${escapeHtml(item.tool || 'unknown')}</strong> <span>(${escapeHtml(item.server || 'unknown')}) - ${escapeHtml(item.description || item.tool || 'tool')}${escapeHtml(params)}</span>`;
+      confirmationPlanList.appendChild(li);
+    });
+    confirmationPlan.classList.add('show');
+  }
+
+  function renderEmptyDetail() {
+    detailPane.innerHTML = `
+      <div class="detail-panel detail-empty">
+        <h2 class="detail-title">Team query workspace</h2>
+        <p>Run a new OSINT query above or select a historical query on the left to inspect the response here.</p>
+      </div>
+    `;
+  }
+
+  function renderQueryDetail(q) {
+    if (!q) {
+      renderEmptyDetail();
+      return;
+    }
+    currentParentId = q.id;
+    document.querySelectorAll('[data-query-id]').forEach(el => {
+      el.classList.toggle('active', String(el.dataset.queryId) === String(q.id));
+    });
+
+    const created = q.created_at ? new Date(q.created_at) : null;
+    const createdText = created && !isNaN(created.getTime()) ? created.toLocaleDateString() : '';
+    const raw = q.raw_results || {};
+    const toolCalls = q.tool_calls || (raw && raw.tool_calls) || [];
+    const answerSource = q.answer_source || (raw && raw.answer_source) || '';
+    const executionSteps = q.execution_steps || (raw && raw.execution_steps) || toolCalls.map(c => c.tool || c.tool_name).filter(Boolean);
+
+    let body = '';
+    if (q.error) {
+      body += `<div class="detail-panel"><h2 class="section-label">Error</h2><div class="query-error">${escapeHtml(q.error)}</div></div>`;
+    } else if (q.is_running || (!q.summary && !q.duration_ms)) {
+      body += `<div class="detail-panel"><h2 class="section-label">Running</h2><p class="running-note">This query is running in the background. It will appear here and in the history when complete.</p></div>`;
+    }
+
+    if (!q.error && answerSource === 'agent_only') {
+      body += `<div class="detail-panel"><div class="query-info">No OSINT tool produced usable output for this answer. The agent answered from the provided context and prior results.</div></div>`;
+    }
+
+    if (executionSteps.length) {
+      const formattedSteps = formatExecutionSteps(toolCalls, executionSteps);
+      body += `<div class="detail-panel"><div class="query-steps"><span class="label">Steps</span>${escapeHtml(formattedSteps.join(' -> '))}</div></div>`;
+    }
+
+    if (q.summary) {
+      body += `<div class="detail-panel"><h2 class="section-label">Summary</h2><div class="summary-md">${marked.parse(q.summary)}</div></div>`;
+    }
+
+    if (toolCalls.length) {
+      const callsHtml = toolCalls.map(tc => {
+        const failed = tc.success === false;
+        return `
+          <div class="tool-call ${failed ? 'failed' : ''}">
+            <span class="tname">${escapeHtml(formatToolWithServer(tc))}</span>
+            ${tc.error ? `<div style="color:#fca5a5; margin-top:0.25rem;">${escapeHtml(tc.error)}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+      body += `<div class="detail-panel"><h2 class="section-label">Tool calls (${toolCalls.length})</h2>${callsHtml}</div>`;
+    }
+
+    if (raw && Object.keys(raw).length) {
+      body += `
+        <div class="detail-panel">
+          <details>
+            <summary class="section-label" style="cursor:pointer;">Raw results</summary>
+            <pre class="raw-pre">${escapeHtml(JSON.stringify(raw, null, 2))}</pre>
+          </details>
+        </div>
+      `;
+    }
+
+    body += `
+      <div class="detail-panel">
+        <h2 class="section-label">Ask a follow-up</h2>
+        <div class="followup-row">
+          <input class="search-input" id="workspaceFollowupInput" type="text" placeholder="Ask a follow-up using this response as context..." autocomplete="off">
+          <button class="search-btn" id="workspaceFollowupBtn" type="button">Send</button>
+        </div>
+      </div>
+    `;
+
+    detailPane.innerHTML = `
+      <div class="detail-panel">
+        <h2 class="detail-title">${escapeHtml(q.user_query || '')}</h2>
+        <div class="detail-meta">
+          <span class="author">${escapeHtml(q.author || '')}</span>
+          ${createdText ? `<span>${escapeHtml(createdText)}</span>` : ''}
+          ${statusBadge(q)}
+        </div>
+      </div>
+      ${body}
+    `;
+
+    const followInput = document.getElementById('workspaceFollowupInput');
+    const followBtn = document.getElementById('workspaceFollowupBtn');
+    if (followInput && followBtn) {
+      const submitFollowup = () => {
+        const text = followInput.value.trim();
+        if (!text) return;
+        queryInput.value = text;
+        currentParentId = q.id;
+        searchForm.dispatchEvent(new Event('submit', { cancelable: true }));
+      };
+      followBtn.addEventListener('click', submitFollowup);
+      followInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          submitFollowup();
+        }
+      });
+    }
+  }
+
+  function selectQuery(id, pushState = true) {
+    const q = queriesById.get(String(id));
+    if (!q) return false;
+    hideWorkflowBoxes();
+    renderQueryDetail(q);
+    if (pushState) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('query_id', id);
+      window.history.pushState({ query_id: id }, '', url);
+    }
+    return true;
+  }
+
+  function prependOrUpdateHistory(q) {
+    queriesById.set(String(q.id), q);
+    let row = document.querySelector(`.query-row[data-query-id="${q.id}"]`);
+    if (!row) {
+      row = document.createElement('a');
+      row.className = 'query-row';
+      row.href = `?query_id=${q.id}`;
+      row.dataset.queryId = q.id;
+      const first = document.querySelector('.history-col .query-row');
+      const empty = document.querySelector('.empty-history');
+      if (empty) empty.remove();
+      if (first) first.parentNode.insertBefore(row, first);
+      else document.querySelector('.history-col').appendChild(row);
+      row.addEventListener('click', onQueryLinkClick);
+    }
+    const created = q.created_at ? new Date(q.created_at) : new Date();
+    row.innerHTML = `
+      <div class="qtext">${escapeHtml(q.user_query || '')}</div>
+      <div class="qmeta">
+        <span class="author">${escapeHtml(q.author || 'You')}</span>
+        <span>${escapeHtml(created.toLocaleDateString())}</span>
+        ${(q.action || q.interpreted_action) ? `<span>${escapeHtml(q.action || q.interpreted_action)}</span>` : ''}
+        ${statusBadge(q)}
+      </div>
+    `;
+  }
+
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.classList.add('show');
+  }
+
+  function addProgressStep(message) {
+    const item = document.createElement('div');
+    item.className = 'progress-step';
+    item.textContent = message;
+    progressSteps.appendChild(item);
+  }
+
+  function parseAndConfirm(queryText) {
+    if (isBusy) return;
+    currentQuery = queryText;
+    setBusy(true);
+    hideWorkflowBoxes();
+    fetch('/parse/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: queryText,
+        ...(currentParentId ? { parent_id: currentParentId } : {}),
+      }),
+    })
+      .then(resp => resp.json())
+      .then(data => {
+        if (!data.success) {
+          showError(data.error || 'Could not understand query.');
+          setBusy(false);
+          return;
+        }
+        confirmedAction = data.interpreted_action;
+        confirmedParams = data.interpreted_params;
+        confirmationMessage.textContent = data.confirmation_message;
+        confirmAction.textContent = data.interpreted_action;
+        confirmParams.textContent = JSON.stringify(data.interpreted_params);
+        renderConfirmationPlan(data.tool_plan || []);
+        confirmationBox.classList.add('show');
+        setBusy(false);
+      })
+      .catch(err => {
+        showError(err.message || 'Could not parse query.');
+        setBusy(false);
+      });
+  }
+
+  function executeSearch() {
+    if (isBusy) return;
+    setBusy(true);
+    confirmationBox.classList.remove('show');
+    progressSteps.innerHTML = '';
+    progressBox.classList.add('show');
+    const params = new URLSearchParams({
+      query: currentQuery,
+      action: confirmedAction || '',
+      params: JSON.stringify(confirmedParams || {}),
+    });
+    if (currentParentId) params.set('parent_id', currentParentId);
+    eventSource = new EventSource('/search/stream/?' + params.toString());
+
+    eventSource.addEventListener('progress', e => {
+      const data = JSON.parse(e.data);
+      addProgressStep(data.message || data.stage || 'Working...');
+    });
+
+    eventSource.addEventListener('result', e => {
+      const data = JSON.parse(e.data);
+      eventSource.close();
+      eventSource = null;
+      progressBox.classList.remove('show');
+      const q = {
+        ...data,
+        id: data.query_id,
+        user_query: currentQuery,
+        author: 'You',
+        created_at: new Date().toISOString(),
+        interpreted_action: data.action,
+        server_used: data.server,
+        answer_source: data.answer_source,
+        execution_steps: data.execution_steps,
+        is_running: false,
+      };
+      prependOrUpdateHistory(q);
+      renderQueryDetail(q);
+      queryInput.value = '';
+      setBusy(false);
+    });
+
+    eventSource.addEventListener('error', e => {
+      if (!e.data) return;
+      const data = JSON.parse(e.data);
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      progressBox.classList.remove('show');
+      showError(data.error || 'Query failed.');
+      setBusy(false);
+    });
+
+    eventSource.onerror = () => {
+      if (eventSource && eventSource.readyState === EventSource.CLOSED) return;
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      progressBox.classList.remove('show');
+      showError('Live connection closed. The query may continue running in the background and will appear in history when complete.');
+      setBusy(false);
+    };
+  }
+
+  function detachLiveSearchStream() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  }
+
+  function onQueryLinkClick(e) {
+    const id = this.dataset.queryId;
+    if (id && selectQuery(id)) e.preventDefault();
+  }
+
+  document.querySelectorAll('.query-row[data-query-id], .try-btn[data-query-id]').forEach(el => {
+    el.addEventListener('click', onQueryLinkClick);
+  });
+
+  document.querySelectorAll('[data-suggested-query]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault();
+      queryInput.value = el.dataset.suggestedQuery || '';
+      queryInput.focus();
+      currentParentId = null;
+      document.getElementById('new-query').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  searchForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const text = queryInput.value.trim();
+    if (!text) return;
+    parseAndConfirm(text);
+  });
+
+  confirmBtn.addEventListener('click', () => {
+    executeSearch();
+  });
+  editBtn.addEventListener('click', () => {
+    confirmationBox.classList.remove('show');
+    queryInput.focus();
+  });
+  cancelBtn.addEventListener('click', () => {
+    hideWorkflowBoxes();
+    setBusy(false);
+  });
+  cancelStreamBtn.addEventListener('click', () => {
+    detachLiveSearchStream();
+    progressBox.classList.remove('show');
+    showError('Live view detached. The query continues in the background and will appear in history when complete.');
+    setBusy(false);
+  });
+  window.addEventListener('pagehide', detachLiveSearchStream);
+  window.addEventListener('beforeunload', detachLiveSearchStream);
+  window.addEventListener('popstate', () => {
+    const id = new URL(window.location.href).searchParams.get('query_id');
+    if (id) selectQuery(id, false);
+    else renderEmptyDetail();
+  });
+
+  if (selectedQueryId && queriesById.has(String(selectedQueryId))) {
+    selectQuery(selectedQueryId, false);
+  } else if (initialQueries.length) {
+    selectQuery(initialQueries[0].id, false);
+  } else {
+    renderEmptyDetail();
+  }
+
+  // ---- Context-aware toggle ----
+  const contextToggle = document.getElementById('contextToggle');
+  const contextToggleLabel = document.getElementById('contextToggleLabel');
+  const page = document.getElementById('page');
+
+  contextToggle.addEventListener('click', async () => {
+    try {
+      const resp = await fetch('/api/extension/toggle/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRFToken': getCookie('csrftoken') || '' },
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data.context_aware_enabled) {
+        contextToggle.classList.add('active');
+        contextToggleLabel.textContent = 'Context ON';
+        // Reload so the server renders the context panel with fresh data
+        window.location.reload();
+      } else {
+        contextToggle.classList.remove('active');
+        contextToggleLabel.textContent = 'Context OFF';
+        page.classList.add('no-context-panel');
+        const col = document.getElementById('contextCol');
+        if (col) col.remove();
+      }
+    } catch { /* silent */ }
+  });
+
+  // ---- Context refresh button (only present when context is ON) ----
+  const refreshBtn = document.getElementById('refreshCtxBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '↻ Refreshing…';
+      try {
+        const resp = await fetch('{% url "workspace_refresh_context" %}', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': getCookie('csrftoken') || '' },
+        });
+        if (resp.ok) {
+          window.location.reload();
+        } else {
+          refreshBtn.textContent = 'Error — retry';
+          refreshBtn.disabled = false;
+        }
+      } catch {
+        refreshBtn.textContent = '↻ Refresh';
+        refreshBtn.disabled = false;
+      }
+    });
+  }
+
+  // ---- Notifications bell ----
+  const bellBtn = document.getElementById('bellBtn');
+  const bellBadge = document.getElementById('bellBadge');
+  const bellDropdown = document.getElementById('bellDropdown');
+  const bellEmpty = document.getElementById('bellEmpty');
+  let unreadCount = 0;
+
+  function setBadge(n) {
+    unreadCount = Math.max(0, n);
+    if (unreadCount > 0) {
+      bellBadge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+      bellBadge.style.display = 'flex';
+    } else {
+      bellBadge.style.display = 'none';
+    }
+  }
+
+  async function fetchNotifications() {
+    try {
+      const resp = await fetch('/notifications/', { credentials: 'same-origin' });
+      if (!resp.ok) return;
+      renderNotifications(await resp.json());
+    } catch { /* silent */ }
+  }
+
+  function renderNotifications(data) {
+    setBadge(data.unread_count || 0);
+    bellDropdown.querySelectorAll('.bell-item').forEach(el => el.remove());
+    if (unreadCount === 0) { bellEmpty.style.display = 'block'; return; }
+    bellEmpty.style.display = 'none';
+
+    data.notifications.forEach(n => {
+      const item = document.createElement('a');
+      item.className = 'bell-item';
+      // AI result notifications link to the stored workspace output.
+      if (n.type === 'suggestion') {
+        item.href = n.query_id ? '/workspace/?query_id=' + n.query_id : '/workspace/';
+      } else {
+        item.href = '/workspace/?query_id=' + n.query_id;
+      }
+      item.dataset.notifId = n.id;
+
+      const typeTag = n.type === 'suggestion'
+        ? '<span class="suggestion-tag">AI</span> '
+        : '';
+      item.innerHTML =
+        '<div class="qtext">' + escapeHtml(n.query_text) + '</div>' +
+        '<div class="meta">' + typeTag +
+        '<span class="author">' + escapeHtml(n.author) + '</span> · ' +
+        new Date(n.created_at).toLocaleString() + '</div>';
+
+      item.addEventListener('click', () => {
+        if (item.dataset.readQueued !== '1') {
+          setBadge(unreadCount - 1);
+          fetch('/notifications/' + n.id + '/read/', {
+            method: 'POST', credentials: 'same-origin', keepalive: true,
+            headers: { 'X-CSRFToken': getCookie('csrftoken') || '' },
+          }).catch(() => {});
+        }
+      });
+      bellDropdown.appendChild(item);
+    });
+  }
+
+  function markVisibleNotificationsRead() {
+    const items = Array.from(bellDropdown.querySelectorAll('.bell-item'));
+    if (!items.length || unreadCount === 0) return;
+    setBadge(0);
+    items.forEach(item => {
+      const id = item.dataset.notifId;
+      if (!id || item.dataset.readQueued === '1') return;
+      item.dataset.readQueued = '1';
+      fetch('/notifications/' + id + '/read/', {
+        method: 'POST', credentials: 'same-origin', keepalive: true,
+        headers: { 'X-CSRFToken': getCookie('csrftoken') || '' },
+      }).catch(() => {});
+    });
+  }
+
+  bellBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    bellDropdown.classList.toggle('show');
+    if (bellDropdown.classList.contains('show')) {
+      markVisibleNotificationsRead();
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!bellDropdown.contains(e.target) && e.target !== bellBtn) {
+      bellDropdown.classList.remove('show');
+    }
+  });
+
+  fetchNotifications();
+  setInterval(fetchNotifications, 30000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,50 @@
+User types: "Find accounts for john_doe"
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────┐
+│  1. FRONTEND (index.html)                               │
+│     - Sends query to /parse/ endpoint                   │
+│     - Shows confirmation: "Search for 'john_doe'?"      │
+│     - User clicks "Run Search"                          │
+│     - Opens SSE connection to /search/stream/           │
+└─────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────┐
+│  2. DJANGO VIEWS (views.py)                             │
+│     - /parse/: Uses Claude to interpret query           │
+│     - /search/stream/: Creates MCP client, streams      │
+│       progress back to frontend via SSE                 │
+└─────────────────────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────────────────────┐
+│  3. MCP CLIENT (mcp_client.py)                          │
+│     - Connects to MULTIPLE MCP servers:                 │
+│       • Local server (stdio) - username, person search  │
+│       • WhoisXML server (HTTP) - domain/IP tools        │
+│     - Discovers all 20 tools from both servers          │
+│     - Asks Claude: "What tool should I use?"            │
+│     - Claude says: "Use username_search(john_doe)"      │
+│     - Routes call to correct server (local)             │
+│     - Emits progress: "Connecting...", "Executing..."   │
+└─────────────────────────────────────────────────────────┘
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+┌─────────────────┐   ┌─────────────────────────────────┐
+│  4a. LOCAL MCP  │   │  4b. WHOISXML MCP SERVER        │
+│  SERVER (stdio) │   │  (hosted HTTP)                  │
+│                 │   │                                 │
+│  - username_    │   │  - whois, dns_lookup            │
+│    search       │   │  - ip_geolocation               │
+│                 │   │  - subdomains, threat_intel     │
+│                 │   │  - 13 more tools...             │
+└─────────────────┘   └─────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────┐
+│  5. AGENT (whatsmyname.py)                              │      
+│     - Checks 600+ sites in parallel                     │
+│     - Returns: {found_sites: [...], total_found: 47}    │
+└─────────────────────────────────────────────────────────┘

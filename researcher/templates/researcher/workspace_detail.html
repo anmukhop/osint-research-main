@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Query · {{ active_team.name }} workspace</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+               background: #080c14; color: #e4e9f1; min-height: 100vh; padding: 2rem; margin: 0; }
+        .wrap { max-width: 920px; margin: 0 auto; }
+        .back { color: #7a8baa; text-decoration: none; font-size: 0.875rem; }
+        .back:hover { color: #e4e9f1; }
+        h1 { color: #6b93ff; margin: 0.75rem 0 0.25rem; font-size: 1.4rem; font-weight: 600;
+             line-height: 1.3; word-break: break-word; }
+        .meta { color: #7a8baa; font-size: 0.875rem; margin-bottom: 1.5rem;
+                display: flex; gap: 0.875rem; flex-wrap: wrap; }
+        .meta .author { color: #6b93ff; font-weight: 500; }
+        .badge { padding: 0.075rem 0.5rem; border-radius: 4px; font-size: 0.7rem;
+                 text-transform: uppercase; letter-spacing: 0.05em; }
+        .badge.ok { background: #0d2818; color: #22c55e; }
+        .badge.running { background: #172033; color: #dbeafe; }
+        .badge.fail { background: #2a1215; color: #fca5a5; }
+        .panel { background: #111927; border: 1px solid #1e2d4a; border-radius: 10px;
+                 padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+        .panel h2 { color: #6b93ff; font-size: 1rem; margin: 0 0 0.75rem; font-weight: 600;
+                    text-transform: uppercase; letter-spacing: 0.05em; }
+        .summary { line-height: 1.65; }
+        .summary h1, .summary h2, .summary h3 { color: #6b93ff; margin-top: 1rem; }
+        .summary code { background: #182035; padding: 0.125rem 0.375rem; border-radius: 4px;
+                        font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+        .summary a,
+        .summary a:link,
+        .summary a:visited {
+            color: #8aabff !important;
+            text-decoration: underline;
+            text-decoration-color: rgba(138, 171, 255, 0.4);
+            text-underline-offset: 2px;
+            word-break: break-all;
+        }
+        .summary a:hover,
+        .summary a:active {
+            color: #b6c9ff !important;
+            text-decoration-color: #b6c9ff;
+        }
+        .error-box { background: #2a1215; color: #fecaca; padding: 0.875rem 1rem;
+                     border-radius: 8px; border: 1px solid #ef444433; }
+        .tool-call { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;
+                     background: #080c14; border: 1px solid #1e2d4a; border-radius: 6px;
+                     padding: 0.625rem 0.875rem; margin-bottom: 0.5rem; color: #b6c2d9; }
+        .tool-call .tname { color: #6b93ff; }
+        .tool-call.failed { border-color: #ef444466; }
+        .followup-row { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
+        .followup-input {
+            flex: 1; padding: 0.625rem 0.875rem;
+            background: #080c14; color: #e4e9f1;
+            border: 1px solid #1e2d4a; border-radius: 6px;
+            font-family: inherit; font-size: 0.9rem;
+        }
+        .followup-input:focus { outline: none; border-color: #6b93ff; }
+        .followup-input::placeholder { color: #4a5a7a; }
+        .followup-submit {
+            padding: 0.625rem 1.25rem; background: #6b93ff; color: #080c14;
+            border: none; border-radius: 6px; font-weight: 600;
+            font-size: 0.9rem; cursor: pointer;
+        }
+        .followup-submit:hover { background: #8aabff; }
+        .followup-submit:disabled { background: #2a3a5a; color: #4a5a7a; cursor: not-allowed; }
+        .followup-hint { color: #7a8baa; font-size: 0.8rem; margin-top: 0.5rem; }
+        .raw-toggle {
+            cursor: pointer;
+            color: #7a8baa;
+            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            user-select: none;
+        }
+        .raw-toggle:hover { color: #e4e9f1; }
+        details[open] .raw-toggle { color: #6b93ff; margin-bottom: 0.625rem; display: inline-block; }
+        #raw-results-pre {
+            background: #080c14;
+            border: 1px solid #1e2d4a;
+            border-radius: 6px;
+            padding: 0.875rem;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            color: #b6c2d9;
+            max-height: 400px;
+            margin: 0;
+            white-space: pre;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <a class="back" href="{% url 'workspace' %}">← {{ active_team.name }} workspace</a>
+        <h1>{{ query.user_query }}</h1>
+        <div class="meta">
+            <span class="author">{% if query.user %}{{ query.user.username }}{% else %}AI Research Assistant{% endif %}</span>
+            <span>{{ query.created_at|date:"M j, Y" }}</span>
+            {% if query.success %}
+                <span class="badge ok">ok</span>
+            {% elif not query.error and not query.duration_ms %}
+                <span class="badge running">running</span>
+            {% else %}
+                <span class="badge fail">failed</span>
+            {% endif %}
+        </div>
+
+        {% if query.error %}
+            <div class="panel">
+                <h2>Error</h2>
+                <div class="error-box">{{ query.error }}</div>
+            </div>
+        {% endif %}
+
+        {% if not query.summary and not query.error and not query.duration_ms %}
+            <div class="panel">
+                <h2>Running</h2>
+                <p style="color:#d7e1ff; margin:0;">This query is still running in the background. Refresh this page or return to the team workspace to see the result when it is ready.</p>
+            </div>
+        {% endif %}
+
+        {% if query.summary %}
+            <div class="panel">
+                <h2>Summary</h2>
+                <div class="summary" id="summary-md"></div>
+            </div>
+            {{ query.summary|json_script:"summary-data" }}
+            <script>
+                document.getElementById("summary-md").innerHTML =
+                    marked.parse(JSON.parse(document.getElementById("summary-data").textContent));
+            </script>
+        {% endif %}
+
+        {% if tool_calls %}
+            <div class="panel">
+                <h2>Tool calls ({{ tool_calls|length }})</h2>
+                {% for tc in tool_calls %}
+                    <div class="tool-call {% if not tc.success %}failed{% endif %}">
+                        <span class="tname">{{ tc.tool_name }} [{{ tc.server_name }}]</span>
+                        {% if not tc.success and tc.error %}
+                            <div style="color:#fca5a5; margin-top:0.25rem;">{{ tc.error }}</div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if query.raw_results %}
+            <div class="panel">
+                <h2>Raw results</h2>
+                <details>
+                    <summary class="raw-toggle">Show raw JSON</summary>
+                    <pre id="raw-results-pre"></pre>
+                </details>
+            </div>
+            {{ query.raw_results|json_script:"raw-results-data" }}
+            <script>
+                (function () {
+                    const data = JSON.parse(document.getElementById("raw-results-data").textContent);
+                    document.getElementById("raw-results-pre").textContent =
+                        JSON.stringify(data, null, 2);
+                })();
+            </script>
+        {% endif %}
+
+        <div class="panel">
+            <h2>Ask a follow-up</h2>
+            <div class="followup-row">
+                <input type="text"
+                       class="followup-input"
+                       id="followupInput"
+                       placeholder="Type a follow-up question — The agent will see the previous response as context..."
+                       autocomplete="off">
+                <button class="followup-submit" id="followupSubmit">Send</button>
+            </div>
+            <div class="followup-hint">
+                Your follow-up will run on the search page with this query loaded as context.
+            </div>
+        </div>
+
+        <script>
+            (function () {
+                const input = document.getElementById('followupInput');
+                const submit = document.getElementById('followupSubmit');
+                const parentId = {{ query.id }};
+
+                function go() {
+                    const text = input.value.trim();
+                    if (!text) return;
+                    const params = new URLSearchParams({
+                        parent_id: parentId,
+                        prefill: text,
+                    });
+                    window.location.href = '/?' + params.toString();
+                }
+
+                submit.addEventListener('click', go);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        go();
+                    }
+                });
+                // Auto-focus so the user can just start typing
+                input.focus();
+            })();
+        </script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark · OSINT Research Tool</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #080c14;
+      --card: #111927;
+      --elevated: #182035;
+      --border: #1e2d4a;
+      --text: #e4e9f1;
+      --muted: #9aa8c7;
+      --accent: #6b93ff;
+      --ok: #22c55e;
+      --fail: #fca5a5;
+      --mono: 'JetBrains Mono', 'Courier New', monospace;
+      --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+    body {
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      padding: 2rem;
+    }
+    .wrap { max-width: 1400px; margin: 0 auto; }
+    .top {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 1rem; margin-bottom: 1.25rem;
+    }
+    h1 { color: var(--accent); font-size: 1.5rem; font-weight: 650; }
+    .sub { color: var(--muted); line-height: 1.5; margin-bottom: 1.5rem; max-width: 850px; }
+    a.back {
+      color: var(--muted); text-decoration: none; border: 1px solid var(--border);
+      background: var(--elevated); border-radius: 6px; padding: 0.45rem 0.75rem;
+    }
+    a.back:hover { color: var(--text); border-color: var(--accent); }
+    .actions { display: flex; gap: 0.625rem; margin-bottom: 1rem; }
+    button {
+      border: none; border-radius: 7px; padding: 0.65rem 1rem;
+      font: inherit; font-weight: 650; cursor: pointer;
+    }
+    .primary { background: #3b6cf6; color: white; }
+    .secondary { background: var(--elevated); color: var(--text); border: 1px solid var(--border); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    table {
+      width: 100%; border-collapse: collapse; background: var(--card);
+      border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.85rem 0.9rem;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      color: var(--text); font-size: 0.8rem; text-transform: uppercase;
+      letter-spacing: 0.07em; font-family: var(--mono); background: var(--elevated);
+    }
+    tr:last-child td { border-bottom: none; }
+    .id { width: 82px; color: var(--accent); font-family: var(--mono); font-weight: 700; }
+    .query { width: 32%; line-height: 1.45; }
+    .status { width: 118px; font-family: var(--mono); font-size: 0.85rem; }
+    .result { min-width: 420px; }
+    .tool { width: 220px; color: var(--muted); font-family: var(--mono); font-size: 0.82rem; }
+    .badge {
+      display: inline-block; border-radius: 999px; padding: 0.2rem 0.55rem;
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em;
+      font-family: var(--mono);
+    }
+    .pending { background: #172033; color: #dbeafe; }
+    .running { background: #1e2d4a; color: #dbeafe; }
+    .ok { background: #0d2818; color: var(--ok); }
+    .fail { background: #2a1215; color: var(--fail); }
+    .result-body { color: var(--text); line-height: 1.6; }
+    .result-body h1, .result-body h2, .result-body h3 {
+      color: var(--accent); margin: 0.75rem 0 0.35rem;
+    }
+    .result-body ul, .result-body ol { margin-left: 1.25rem; }
+    .result-body code {
+      background: var(--elevated); padding: 0.1rem 0.35rem;
+      border-radius: 4px; font-family: var(--mono); font-size: 0.9em;
+    }
+    .error { color: var(--fail); line-height: 1.5; }
+    .meta { color: var(--muted); font-size: 0.82rem; margin-top: 0.65rem; }
+    .raw-toggle {
+      margin-top: 0.65rem; color: var(--muted); cursor: pointer;
+      font-family: var(--mono); font-size: 0.78rem;
+    }
+    pre {
+      margin-top: 0.5rem; max-height: 280px; overflow: auto;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      padding: 0.75rem; color: #b6c2d9; font-size: 0.78rem;
+    }
+    @media (max-width: 900px) {
+      body { padding: 1rem; }
+      table, thead, tbody, th, td, tr { display: block; }
+      thead { display: none; }
+      tr { border-bottom: 1px solid var(--border); }
+      td { width: 100% !important; }
+      td::before {
+        display: block; color: var(--muted); font-family: var(--mono);
+        font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem;
+      }
+      td.id::before { content: "ID"; }
+      td.query::before { content: "Query"; }
+      td.status::before { content: "Status"; }
+      td.tool::before { content: "Tool Calls"; }
+      td.result::before { content: "Result"; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>OSINT Agent Benchmark</h1>
+    <a class="back" href="{% url 'index' %}">Back to search</a>
+  </div>
+  <p class="sub">
+    This page runs the benchmark queries through the backend OSINT agent and records the
+    selected tools, status, and returned answer. Results are generated live; unavailable
+    MCP services or API keys will appear as row-level failures.
+  </p>
+
+  <div class="actions">
+    <button class="primary" id="runAllBtn" type="button">Run benchmark</button>
+    <button class="secondary" id="clearBtn" type="button">Clear results</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Query</th>
+        <th>Status</th>
+        <th>Tool Calls</th>
+        <th>Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in benchmark_queries %}
+        <tr data-benchmark-id="{{ row.id }}">
+          <td class="id">{{ row.id }}</td>
+          <td class="query">{{ row.query }}</td>
+          <td class="status"><span class="badge pending">pending</span></td>
+          <td class="tool">-</td>
+          <td class="result"><span class="meta">Not run yet.</span></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{{ benchmark_queries|json_script:"benchmark-query-data" }}
+
+<script>
+(function () {
+  "use strict";
+
+  const rows = JSON.parse(document.getElementById('benchmark-query-data').textContent);
+  const runAllBtn = document.getElementById('runAllBtn');
+  const clearBtn = document.getElementById('clearBtn');
+
+  function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : null;
+  }
+
+  function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+  }
+
+  function rowEl(id) {
+    return document.querySelector(`tr[data-benchmark-id="${id}"]`);
+  }
+
+  function setStatus(id, status, label) {
+    const cell = rowEl(id).querySelector('.status');
+    cell.innerHTML = `<span class="badge ${status}">${escapeHtml(label)}</span>`;
+  }
+
+  function renderToolCalls(data) {
+    const calls = data.tool_calls || [];
+    if (!calls.length) {
+      return data.answer_source === 'agent_only' ? 'No usable OSINT tool output' : '-';
+    }
+    return calls.map(call => {
+      const name = call.tool || call.tool_name || 'unknown';
+      const server = call.server || call.server_name || '';
+      const ok = call.success === false ? 'failed' : 'ok';
+      return `${name}${server ? ' [' + server + ']' : ''} (${ok})`;
+    }).join('\n');
+  }
+
+  function renderResult(id, data) {
+    const row = rowEl(id);
+    row.querySelector('.tool').textContent = renderToolCalls(data);
+    const resultCell = row.querySelector('.result');
+    const summary = data.summary || '';
+    const error = data.error || '';
+    const meta = [
+      Number.isFinite(data.duration_ms) ? `Duration: ${data.duration_ms}ms` : '',
+      data.answer_source === 'agent_only' ? 'Agent-only answer' : '',
+    ].filter(Boolean).join(' · ');
+
+    if (error && !summary) {
+      resultCell.innerHTML = `<div class="error">${escapeHtml(error)}</div>${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ''}`;
+      return;
+    }
+
+    const note = data.answer_source === 'agent_only'
+      ? '<div class="meta">No OSINT tool produced usable output; the agent answered from provided context or prior results.</div>'
+      : '';
+    const raw = data.raw_results && Object.keys(data.raw_results).length
+      ? `<details><summary class="raw-toggle">Raw JSON</summary><pre>${escapeHtml(JSON.stringify(data.raw_results, null, 2))}</pre></details>`
+      : '';
+    resultCell.innerHTML = `
+      ${note}
+      <div class="result-body">${summary ? marked.parse(summary) : '<span class="meta">No summary returned.</span>'}</div>
+      ${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ''}
+      ${raw}
+    `;
+  }
+
+  async function runOne(row) {
+    setStatus(row.id, 'running', 'running');
+    rowEl(row.id).querySelector('.result').innerHTML = '<span class="meta">Running through backend agent...</span>';
+    rowEl(row.id).querySelector('.tool').textContent = '-';
+
+    try {
+      const resp = await fetch('{% url "benchmark_run" %}', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken') || '',
+        },
+        body: JSON.stringify({ id: row.id }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error && !data.summary) {
+        setStatus(row.id, 'fail', 'failed');
+      } else {
+        setStatus(row.id, data.success ? 'ok' : 'fail', data.success ? 'ok' : 'failed');
+      }
+      renderResult(row.id, data);
+    } catch (err) {
+      setStatus(row.id, 'fail', 'failed');
+      rowEl(row.id).querySelector('.result').innerHTML = `<div class="error">${escapeHtml(err.message || 'Request failed')}</div>`;
+    }
+  }
+
+  async function runAll() {
+    runAllBtn.disabled = true;
+    clearBtn.disabled = true;
+    for (const row of rows) {
+      await runOne(row);
+    }
+    runAllBtn.disabled = false;
+    clearBtn.disabled = false;
+  }
+
+  function clearResults() {
+    rows.forEach(row => {
+      setStatus(row.id, 'pending', 'pending');
+      rowEl(row.id).querySelector('.tool').textContent = '-';
+      rowEl(row.id).querySelector('.result').innerHTML = '<span class="meta">Not run yet.</span>';
+    });
+  }
+
+  runAllBtn.addEventListener('click', runAll);
+  clearBtn.addEventListener('click', clearResults);
+})();
+</script>
+</body>
+</html>
