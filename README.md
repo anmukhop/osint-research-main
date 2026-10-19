@@ -113,3 +113,47 @@ The platform connects to multiple intelligence servers via MCP:
 - **WhoisXML API** — Domain and IP intelligence
 - **Shodan** — Network reconnaissance
 - **BuiltWith** — Technology detection
+
+---
+
+## Local Setup
+
+These steps run the app on your own computer using the VT ARC LLM API (on the `micah-local-development` branch). You need Python 3.11 and a VT ARC API key.
+
+1. **Connect to the VT Campus VPN.** The AI server only accepts requests from the VT network. To check: `curl -s -o /dev/null -w "%{http_code}\n" https://llm-api.arc.vt.edu/api/v1/models` should print `401`. If it prints `403` or hangs, you aren't on the VPN.
+2. **Go to the project folder:** `cd osint-research-main`
+3. **Create and activate a virtual environment.** Use 3.11 to match the `Dockerfile`; newer Pythons may not work.
+   ```
+   python3.11 -m venv .venv
+   source .venv/bin/activate
+   ```
+   Run `source .venv/bin/activate` again in every new terminal.
+4. **Install the libraries:**
+   ```
+   pip install --upgrade pip
+   pip install --prefer-binary -r requirements.txt
+   ```
+   `--prefer-binary` matters on Intel Macs. Without it, pip tries to build `cryptography` from source and fails with a Rust version error.
+5. **Create `.env`** in the project folder (it is gitignored, so never commit it):
+   ```
+   LLM_PROVIDER=openai_compat
+   LLM_BASE_URL=https://llm-api.arc.vt.edu/api/v1
+   LLM_MODEL=DeepSeek-V4.1-Flash
+   LLM_API_KEY=<your VT ARC key>
+   CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
+
+   # Optional: each key turns on more tools
+   WHOISXML_API_KEY=
+   SHODAN_API_KEY=
+   BUILTWITH_API_KEY=
+   ```
+6. **Set up the database:** `python manage.py migrate`. This creates `db.sqlite3` on first run.
+   A `BrokenPipeError` traceback may appear after the prompt returns. It's harmless; press Enter.
+7. **Start the server:**
+   - In the foreground: `python manage.py runserver`. Stop it with Ctrl+C.
+   - In the background, so you can close the terminal:
+     ```
+     nohup python manage.py runserver > server.log 2>&1 & tail -f server.log    # watch output (Ctrl+C stops watching only)
+     lsof -ti tcp:8000 | xargs kill      # stop the server
+     ```
+8. **Open http://localhost:8000**, sign up, and run a search, e.g. "Search the username hokiebird".
