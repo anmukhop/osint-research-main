@@ -221,7 +221,7 @@
                 <pre>{{ simulation.summary|pprint }}</pre>
             {% else %}
                 <div class="empty">
-                    No summary returned. Check ANTHROPIC_API_KEY and server logs for the prompt call.
+                    No summary returned. Check the LLM provider settings in .env and server logs for the prompt call.
                     {% if simulation.summary_error %}<br>{{ simulation.summary_error }}{% endif %}
                 </div>
             {% endif %}

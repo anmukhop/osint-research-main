@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from anthropic import Anthropic
+from .llm_provider import get_provider
 
 import os
 from dotenv import load_dotenv
@@ -231,7 +231,7 @@ class OSINTMCPClient:
         """
         self.progress_callback = progress_callback
         self.exit_stack = AsyncExitStack()
-        self.anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.llm = get_provider()
         
         # Build server list
         self.servers: list[ServerConfig] = []
@@ -757,8 +757,8 @@ RULES FOR THE FINAL ANSWER:
                     )
 
                     response = await asyncio.to_thread(
-                        self.anthropic.messages.create,
-                        model="claude-sonnet-4-5-20250929",
+                        self.llm.create,
+                        tier="main",
                         max_tokens=2048,
                         system=self._PLANNER_SYSTEM_PROMPT,
                         tools=tools,
@@ -920,8 +920,8 @@ RULES FOR THE FINAL ANSWER:
                     })
                     try:
                         summary_response = await asyncio.to_thread(
-                            self.anthropic.messages.create,
-                            model="claude-sonnet-4-5-20250929",
+                            self.llm.create,
+                            tier="main",
                             max_tokens=2048,
                             system=(
                                 "You are an OSINT research assistant. The tool-calling "

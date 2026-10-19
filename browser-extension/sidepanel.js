@@ -158,7 +158,7 @@ function renderEvents(events) {
 
 async function init() {
   // Load saved app URL into settings input
-  const stored = await chrome.storage.sync.get({ appUrl: "https://osint-research-production.up.railway.app/" });
+  const stored = await chrome.storage.sync.get({ appUrl: "http://localhost:8000" });
   appUrlInput.value = stored.appUrl;
   appLink.href = stored.appUrl;
   appLink.textContent = stored.appUrl;

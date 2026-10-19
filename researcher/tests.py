@@ -22,6 +22,7 @@ from researcher.models import (
 from researcher import views
 from researcher.services import browsing_summary
 from researcher.services.mcp_client import OSINTMCPClient, QueryResult
+from researcher.services.llm_provider import AnthropicProvider, OpenAICompatProvider, get_provider
 
 
 class TeamContextSimulationTests(TestCase):
@@ -197,7 +198,7 @@ class TeamContextSimulationTests(TestCase):
         ]
 
         with (
-            patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}),
+            patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key", "LLM_PROVIDER": "anthropic"}),
             patch.object(browsing_summary, "_call_summary", return_value=summary) as call_summary,
             patch.object(browsing_summary, "_call_suggestions", return_value=suggestions) as call_suggestions,
         ):
@@ -380,7 +381,7 @@ class MCPClientConcurrencyTests(TestCase):
                     SimpleNamespace(type="text", text=f"done: {query}")
                 ])
 
-        client.anthropic = SimpleNamespace(messages=FakeMessages())
+        client.llm = AnthropicProvider(client=SimpleNamespace(messages=FakeMessages()))
 
         events = {"a": [], "b": []}
 
@@ -434,7 +435,7 @@ class MCPClientConcurrencyTests(TestCase):
                     )
                 ])
 
-        client.anthropic = SimpleNamespace(messages=FakeMessages())
+        client.llm = AnthropicProvider(client=SimpleNamespace(messages=FakeMessages()))
 
         async def fake_call_tool(tool_name, arguments):
             raise RuntimeError("lookup unavailable")
@@ -478,7 +479,7 @@ class MCPClientConcurrencyTests(TestCase):
                     SimpleNamespace(type="text", text="DNS records found.")
                 ])
 
-        client.anthropic = SimpleNamespace(messages=FakeMessages())
+        client.llm = AnthropicProvider(client=SimpleNamespace(messages=FakeMessages()))
 
         async def fake_call_tool(tool_name, arguments):
             calls["tool"] += 1
@@ -530,7 +531,7 @@ class MCPClientConcurrencyTests(TestCase):
                     )
                 ])
 
-        client.anthropic = SimpleNamespace(messages=FakeMessages())
+        client.llm = AnthropicProvider(client=SimpleNamespace(messages=FakeMessages()))
 
         async def fake_call_tool(tool_name, arguments):
             calls["tool"] += 1
@@ -652,7 +653,7 @@ class QueryApprovalAndCancellationTests(TestCase):
             def __init__(self, **kwargs):
                 self.messages = FakeMessages()
 
-        with patch("anthropic.Anthropic", FakeAnthropic):
+        with patch("researcher.views.get_provider", lambda: AnthropicProvider(client=FakeAnthropic())):
             response = self.client.post(
                 reverse("parse_query"),
                 data=json.dumps({"query": "Investigate vt.edu ownership and DNS"}),
@@ -683,3 +684,139 @@ class QueryApprovalAndCancellationTests(TestCase):
         self.assertIsNone(query.error)
         self.assertIsNone(query.duration_ms)
         self.assertEqual(persisted, [])
+
+
+class OpenAICompatProviderTests(TestCase):
+    """The VT ARC / OpenAI-compatible backend, exercised against a fake HTTP server."""
+
+    def _provider(self, handler):
+        import httpx
+        return OpenAICompatProvider(
+            base_url="https://llm.example/api/v1",
+            api_key="test-key",
+            model="main-model",
+            fast_model="fast-model",
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+    def test_get_provider_selects_backend_from_env(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "anthropic"}):
+            self.assertIsInstance(get_provider(), AnthropicProvider)
+        with patch.dict("os.environ", {"LLM_PROVIDER": "openai_compat"}):
+            self.assertIsInstance(get_provider(), OpenAICompatProvider)
+
+    def test_tool_round_trip_translates_both_directions(self):
+        sent = []
+
+        def handler(request):
+            body = json.loads(request.content)
+            sent.append(body)
+            if len(sent) == 1:
+                return httpx.Response(200, json={"choices": [{"message": {
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "dns_lookup", "arguments": "{\"domain\": \"vt.edu\"}"},
+                    }],
+                }}]})
+            return httpx.Response(200, json={"choices": [{"message": {"content": "DNS records found."}}]})
+
+        import httpx
+        client = OSINTMCPClient.__new__(OSINTMCPClient)
+        client._connected = True
+        client.progress_callback = None
+        client.MAX_AGENT_TURNS = 3
+        client._whoisxml_backup_attempted = True
+        client.get_tools_for_claude = lambda: [{
+            "name": "dns_lookup",
+            "description": "DNS records",
+            "input_schema": {"type": "object", "properties": {"domain": {"type": "string"}}},
+        }]
+        client.get_server_for_tool = lambda tool_name: "whoisxml"
+        client.llm = self._provider(handler)
+
+        async def fake_call_tool(tool_name, arguments):
+            return SimpleNamespace(
+                isError=False,
+                content=[SimpleNamespace(text=json.dumps({"records": ["A 1.2.3.4"]}))],
+            )
+
+        client.call_tool = fake_call_tool
+
+        result = asyncio.run(client.process_query("DNS for vt.edu"))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.formatted_response, "DNS records found.")
+        self.assertEqual(result.tool_calls_made[0]["args"], {"domain": "vt.edu"})
+
+        first = sent[0]
+        self.assertEqual(first["model"], "main-model")
+        self.assertEqual(first["messages"][0]["role"], "system")
+        self.assertEqual(first["tools"][0]["function"]["name"], "dns_lookup")
+        self.assertEqual(first["tools"][0]["function"]["parameters"]["properties"]["domain"]["type"], "string")
+
+        second = sent[1]["messages"]
+        self.assertEqual(second[-2]["role"], "assistant")
+        self.assertEqual(second[-2]["tool_calls"][0]["id"], "call_1")
+        self.assertEqual(second[-1]["role"], "tool")
+        self.assertEqual(second[-1]["tool_call_id"], "call_1")
+        self.assertIn("1.2.3.4", second[-1]["content"])
+
+    def test_fast_tier_uses_fast_model_and_omits_tools(self):
+        import httpx
+        sent = []
+
+        def handler(request):
+            sent.append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": {"content": "[\"a\"]"}}]})
+
+        resp = self._provider(handler).create(
+            tier="fast", max_tokens=50, messages=[{"role": "user", "content": "hi"}],
+        )
+        self.assertEqual(resp.content[0].text, '["a"]')
+        self.assertEqual(sent[0]["model"], "fast-model")
+        self.assertNotIn("tools", sent[0])
+
+    def test_bad_tool_arguments_become_empty_dict(self):
+        resp = OpenAICompatProvider.convert_response({"choices": [{"message": {
+            "tool_calls": [{"function": {"name": "whois", "arguments": "{not json"}}],
+        }}]})
+        self.assertEqual(resp.content[0].type, "tool_use")
+        self.assertEqual(resp.content[0].input, {})
+        self.assertTrue(resp.content[0].id)
+
+    def test_http_error_raises_with_status(self):
+        import httpx
+        provider = self._provider(lambda request: httpx.Response(401, json={"detail": "401 Unauthorized"}))
+        with self.assertRaisesRegex(RuntimeError, "401"):
+            provider.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+
+    def test_reasoning_headroom_is_added_to_max_tokens(self):
+        import httpx
+        sent = []
+
+        def handler(request):
+            sent.append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+        provider = self._provider(handler)
+        provider.reasoning_headroom = 1000
+        provider.create(messages=[{"role": "user", "content": "hi"}], max_tokens=400)
+        self.assertEqual(sent[0]["max_tokens"], 1400)
+
+    def test_empty_reply_raises_instead_of_returning_nothing(self):
+        # DeepSeek spent the whole budget on hidden reasoning.
+        with self.assertRaisesRegex(RuntimeError, "finish_reason=length"):
+            OpenAICompatProvider.convert_response({"choices": [{
+                "message": {"content": "", "reasoning": "thinking..."},
+                "finish_reason": "length",
+            }]})
+
+    def test_vpn_403_gives_clear_message(self):
+        import httpx
+        provider = self._provider(lambda request: httpx.Response(
+            403, text="API access is restricted to the VT Campus VPN. Please connect to the VPN and retry.",
+        ))
+        with self.assertRaisesRegex(RuntimeError, "Connect to the VT Campus VPN"):
+            provider.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)

@@ -1,7 +1,7 @@
 // Service worker: handles tab events, relays API calls for content scripts
 // and sidepanel. All network requests go through here to avoid CORS issues.
 
-const DEFAULT_APP_URL = "https://osint-research-production.up.railway.app";
+const DEFAULT_APP_URL = "http://localhost:8000";
 
 // ---------------------------------------------------------------------------
 // Storage helpers
