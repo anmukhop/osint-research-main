@@ -154,6 +154,6 @@ These steps run the app on your own computer using the VT ARC LLM API (on the `m
    - In the background, so you can close the terminal:
      ```
      nohup python manage.py runserver > server.log 2>&1 & tail -f server.log    # watch output (Ctrl+C stops watching only)
-     lsof -ti tcp:8000 | xargs kill      # stop the server
+     lsof -ti tcp:8000 -sTCP:LISTEN | xargs kill   # stop the server
      ```
 8. **Open http://localhost:8000**, sign up, and run a search, e.g. "Search the username hokiebird".
