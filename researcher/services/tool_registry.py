@@ -12,6 +12,8 @@ Flow:
 4. Execute tool → return results
 """
 
+import string
+
 # =============================================================================
 # TOOL DEFINITIONS
 # =============================================================================
@@ -20,6 +22,8 @@ Flow:
 # - Query parsing (Claude tool definitions for /parse/)
 # - Validation (required/optional args)
 # - Documentation (examples, descriptions)
+# - Confirmation UI ("confirmation" is a phrase that follows "I'll ...",
+#   with {arg_name} placeholders filled from the tool call's params)
 # =============================================================================
 
 TOOLS = {
@@ -29,6 +33,7 @@ TOOLS = {
     "username_search": {
         "name": "username_search",
         "description": "Search for a username across 600+ social media platforms, forums, and websites to find matching profiles.",
+        "confirmation": "search 600+ sites for profiles matching the username {username}",
         "server": "local",
         "arguments": {
             "username": {
@@ -59,6 +64,7 @@ TOOLS = {
     "whois": {
         "name": "whois",
         "description": "Look up WHOIS registration info for a domain including ownership, registrar, dates, and nameservers.",
+        "confirmation": "look up WHOIS registration info for {domainName}",
         "server": "whoisxml",
         "arguments": {
             "domainName": {
@@ -79,6 +85,7 @@ TOOLS = {
     "whois_history": {
         "name": "whois_history",
         "description": "Get historical WHOIS records for a domain showing ownership changes over time.",
+        "confirmation": "look up the WHOIS history for {domainName}",
         "server": "whoisxml",
         "arguments": {
             "domainName": {
@@ -99,6 +106,7 @@ TOOLS = {
     "reverse_whois": {
         "name": "reverse_whois",
         "description": "Find all domains registered by a specific person or organization.",
+        "confirmation": "find domains registered by {searchTerm}",
         "server": "whoisxml",
         "arguments": {
             "searchTerm": {
@@ -120,6 +128,7 @@ TOOLS = {
     "dns_lookup": {
         "name": "dns_lookup",
         "description": "Look up DNS records for a domain (A, MX, NS, TXT, CNAME, SOA records).",
+        "confirmation": "look up the DNS records for {domainName}",
         "server": "whoisxml",
         "arguments": {
             "domainName": {
@@ -145,6 +154,7 @@ TOOLS = {
     "dns_history": {
         "name": "dns_history",
         "description": "Get historical DNS records for a domain showing changes over time.",
+        "confirmation": "look up the DNS history for {domainName}",
         "server": "whoisxml",
         "arguments": {
             "domainName": {
@@ -165,6 +175,7 @@ TOOLS = {
     "reverse_dns": {
         "name": "reverse_dns",
         "description": "Find domains that have DNS records pointing to a specific target (reverse DNS/CNAME lookup).",
+        "confirmation": "find domains with DNS records pointing to {target}",
         "server": "whoisxml",
         "arguments": {
             "target": {
@@ -185,6 +196,7 @@ TOOLS = {
     "reverse_ip": {
         "name": "reverse_ip",
         "description": "Find all domains hosted on a specific IP address.",
+        "confirmation": "find domains hosted on {ip}",
         "server": "whoisxml",
         "arguments": {
             "ip": {
@@ -205,6 +217,7 @@ TOOLS = {
     "reverse_mx": {
         "name": "reverse_mx",
         "description": "Find domains that use a specific mail server (MX record).",
+        "confirmation": "find domains that use the mail server {target}",
         "server": "whoisxml",
         "arguments": {
             "target": {
@@ -225,6 +238,7 @@ TOOLS = {
     "reverse_ns": {
         "name": "reverse_ns",
         "description": "Find domains that use a specific nameserver.",
+        "confirmation": "find domains that use the nameserver {target}",
         "server": "whoisxml",
         "arguments": {
             "target": {
@@ -246,6 +260,7 @@ TOOLS = {
     "subdomain_lookup": {
         "name": "subdomain_lookup",
         "description": "Enumerate subdomains for a domain.",
+        "confirmation": "find subdomains of {domainName}",
         "server": "whoisxml",
         "arguments": {
             "domainName": {
@@ -266,6 +281,7 @@ TOOLS = {
     "domain_and_subdomain_discovery": {
         "name": "domain_and_subdomain_discovery",
         "description": "Discover domains and subdomains containing a specific keyword.",
+        "confirmation": "find domains and subdomains containing {searchTerm}",
         "server": "whoisxml",
         "arguments": {
             "searchTerm": {
@@ -287,6 +303,7 @@ TOOLS = {
     "ipgeolocation": {
         "name": "ipgeolocation",
         "description": "Get geolocation and network information for an IP address including country, city, ASN, and ISP.",
+        "confirmation": "look up the location and network info for {ip}",
         "server": "whoisxml",
         "arguments": {
             "ip": {
@@ -307,6 +324,7 @@ TOOLS = {
     "ip_netblocks": {
         "name": "ip_netblocks",
         "description": "Get network block ownership information for an IP address or range.",
+        "confirmation": "look up network block ownership for {ip}",
         "server": "whoisxml",
         "arguments": {
             "ip": {
@@ -328,6 +346,7 @@ TOOLS = {
     "threat_intelligence": {
         "name": "threat_intelligence",
         "description": "Get threat intelligence data for a domain or IP address including malware, phishing, and spam reports.",
+        "confirmation": "check {target} for malware, phishing, and spam reports",
         "server": "whoisxml",
         "arguments": {
             "target": {
@@ -348,6 +367,7 @@ TOOLS = {
     "ssl_certificates": {
         "name": "ssl_certificates",
         "description": "Get SSL/TLS certificate information for a domain.",
+        "confirmation": "look up SSL/TLS certificates for {domainName}",
         "server": "whoisxml",
         "arguments": {
             "domainName": {
@@ -368,6 +388,7 @@ TOOLS = {
     "email_verification": {
         "name": "email_verification",
         "description": "Verify if an email address is valid and deliverable.",
+        "confirmation": "check whether {email} is a valid, deliverable address",
         "server": "whoisxml",
         "arguments": {
             "email": {
@@ -388,6 +409,7 @@ TOOLS = {
     "categorization": {
         "name": "categorization",
         "description": "Get the category/classification of a website (e.g., news, shopping, social media).",
+        "confirmation": "find out what kind of website {domainName} is",
         "server": "whoisxml",
         "arguments": {
             "domainName": {
@@ -411,6 +433,7 @@ TOOLS = {
     "shodan_host_lookup": {
         "name": "host",
         "description": "Get information about a host from Shodan including open ports, services, vulnerabilities, and banners.",
+        "confirmation": "look up open ports, services, and vulnerabilities for {ip} on Shodan",
         "server": "shodan",
         "arguments": {
             "ip": {
@@ -431,6 +454,7 @@ TOOLS = {
     "shodan_dns_lookup": {
         "name": "dns-lookup",
         "description": "Resolve a hostname to its IP address(es) using Shodan.",
+        "confirmation": "resolve {hostnames} to IP addresses using Shodan",
         "server": "shodan",
         "arguments": {
             "hostnames": {
@@ -450,6 +474,7 @@ TOOLS = {
     "shodan_reverse_dns": {
         "name": "reverse-dns",
         "description": "Find hostnames for given IP addresses using Shodan.",
+        "confirmation": "find hostnames for {ips} using Shodan",
         "server": "shodan",
         "arguments": {
             "ips": {
@@ -469,6 +494,7 @@ TOOLS = {
     "shodan_cve_lookup": {
         "name": "cve-lookup",
         "description": "Look up details about a specific CVE vulnerability including severity, description, and affected products.",
+        "confirmation": "look up details for {cve_id}",
         "server": "shodan",
         "arguments": {
             "cve_id": {
@@ -492,6 +518,7 @@ TOOLS = {
     "builtwith": {
         "name": "free-api",
         "description": "Get a technology summary for a website including counts of technologies by category (analytics, CMS, hosting, frameworks, etc.) and when it was first/last indexed.",
+        "confirmation": "look up the technologies used by {domain}",
         "server": "builtwith",
         "arguments": {
             "domain": {
@@ -512,6 +539,7 @@ TOOLS = {
     "builtwith_trends": {
         "name": "trends-api",
         "description": "Get technology adoption trends showing how many sites use a specific technology, with breakdowns by site ranking tiers.",
+        "confirmation": "look up adoption trends for {technology}",
         "server": "builtwith",
         "arguments": {
             "technology": {
@@ -700,31 +728,46 @@ def get_confirmation_message(tool_name: str, params: dict) -> tuple[str, str, st
     Returns:
         Tuple of (message, estimated_time, server_name)
     """
+    params = params or {}
     tool = TOOLS.get(tool_name)
     if not tool:
         return (
-            f"I'll run {tool_name} with the provided parameters.",
+            f"I'll run the {tool_name} tool with the provided parameters.",
             "Unknown",
             "unknown"
         )
-    
+
     server = tool["server"]
     est_time = tool.get("estimated_time", "5-10 seconds")
-    
-    # Build a readable message based on tool + params
-    # Extract the "main" parameter value for display
+
+    # Preferred: the tool's hand-written confirmation phrase, e.g.
+    # "look up the DNS records for {domainName}" -> "I'll look up the DNS records for 'google.com'."
+    template = tool.get("confirmation")
+    if template:
+        placeholders = get_confirmation_placeholders(template)
+        if all(params.get(name) not in (None, "") for name in placeholders):
+            quoted = {name: f"'{params[name]}'" for name in placeholders}
+            return (f"I'll {template.format(**quoted)}.", est_time, server)
+
+    # Fallback (no phrase, or a placeholder's argument is missing): generic message
+    # using the first required parameter that was provided
     main_param = None
     for arg_name, arg_info in tool["arguments"].items():
-        if arg_info.get("required") and arg_name in params:
+        if arg_info.get("required") and params.get(arg_name) not in (None, ""):
             main_param = params[arg_name]
             break
-    
+
     if main_param:
-        msg = f"I'll run {tool['description'].split('.')[0].lower()} for '{main_param}'."
+        msg = f"I'll run the {tool_name} tool for '{main_param}'."
     else:
-        msg = f"I'll run {tool_name} with the provided parameters."
-    
+        msg = f"I'll run the {tool_name} tool with the provided parameters."
+
     return (msg, est_time, server)
+
+
+def get_confirmation_placeholders(template: str) -> list[str]:
+    """Return the {arg_name} placeholders used in a confirmation phrase."""
+    return [field for _, field, _, _ in string.Formatter().parse(template) if field]
 
 
 def get_tools_for_prompt() -> str:
