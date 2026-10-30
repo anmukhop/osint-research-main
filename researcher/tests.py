@@ -23,6 +23,11 @@ from researcher import views
 from researcher.services import browsing_summary
 from researcher.services.mcp_client import OSINTMCPClient, QueryResult
 from researcher.services.llm_provider import AnthropicProvider, OpenAICompatProvider, get_provider
+from researcher.services.tool_registry import (
+    TOOLS,
+    get_confirmation_message,
+    get_confirmation_placeholders,
+)
 
 
 class TeamContextSimulationTests(TestCase):
@@ -820,3 +825,53 @@ class OpenAICompatProviderTests(TestCase):
         ))
         with self.assertRaisesRegex(RuntimeError, "Connect to the VT Campus VPN"):
             provider.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+
+
+class ConfirmationMessageTests(TestCase):
+    """The "I'll ..." sentence shown in the Confirm Search box."""
+
+    def test_every_tool_has_a_confirmation_phrase(self):
+        missing = [name for name, tool in TOOLS.items() if not tool.get("confirmation")]
+        self.assertEqual(missing, [])
+
+    def test_every_placeholder_matches_a_tool_argument(self):
+        for name, tool in TOOLS.items():
+            with self.subTest(tool=name):
+                placeholders = get_confirmation_placeholders(tool["confirmation"])
+                self.assertTrue(placeholders, "phrase should mention what is being searched")
+                for placeholder in placeholders:
+                    self.assertIn(placeholder, tool["arguments"])
+
+    def test_every_phrase_renders_with_its_required_arguments(self):
+        for name, tool in TOOLS.items():
+            with self.subTest(tool=name):
+                params = {
+                    arg: "example"
+                    for arg, info in tool["arguments"].items()
+                    if info.get("required")
+                }
+                msg, _, _ = get_confirmation_message(name, params)
+                self.assertEqual(msg, f"I'll {tool['confirmation'].format(**{a: repr('example') for a in params})}.")
+
+    def test_dns_lookup_reads_naturally(self):
+        msg, _, server = get_confirmation_message("dns_lookup", {"domainName": "google.com", "type": "_all"})
+        self.assertEqual(msg, "I'll look up the DNS records for 'google.com'.")
+        self.assertEqual(server, "whoisxml")
+
+    def test_username_search_reads_naturally(self):
+        msg, _, _ = get_confirmation_message("username_search", {"username": "test_user"})
+        self.assertEqual(msg, "I'll search 600+ sites for profiles matching the username 'test_user'.")
+
+    def test_missing_argument_falls_back_to_generic_message(self):
+        msg, _, _ = get_confirmation_message("dns_lookup", {"type": "MX"})
+        self.assertEqual(msg, "I'll run the dns_lookup tool with the provided parameters.")
+
+    def test_phrase_with_unknown_placeholder_falls_back_instead_of_erroring(self):
+        with patch.dict(TOOLS["dns_lookup"], {"confirmation": "look up {notAnArgument}"}):
+            msg, _, _ = get_confirmation_message("dns_lookup", {"domainName": "google.com"})
+        self.assertEqual(msg, "I'll run the dns_lookup tool for 'google.com'.")
+
+    def test_unknown_tool_falls_back_to_generic_message(self):
+        msg, est_time, server = get_confirmation_message("not_a_tool", {"x": "y"})
+        self.assertEqual(msg, "I'll run the not_a_tool tool with the provided parameters.")
+        self.assertEqual((est_time, server), ("Unknown", "unknown"))
