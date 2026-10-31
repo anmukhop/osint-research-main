@@ -15,6 +15,14 @@
         button { margin-top: 1.25rem; width: 100%; padding: 0.75rem; background: #3b82f6;
                  color: white; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; }
         button:hover { background: #2563eb; }
+        .password-field { position: relative; }
+        button.password-toggle { position: absolute; top: 50%; right: 0.25rem; transform: translateY(-35%);
+                                 width: 2.25rem; margin: 0; padding: 0;
+                                 display: flex; align-items: center; justify-content: center;
+                                 background: transparent; color: #94a3b8; }
+        button.password-toggle:hover { background: #1e293b; color: #e2e8f0; }
+        button.password-toggle:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }
+        button.password-toggle svg { width: 1.2rem; height: 1.2rem; }
         .meta { margin-top: 1rem; font-size: 0.875rem; color: #94a3b8; text-align: center; }
         .meta a { color: #60a5fa; text-decoration: none; }
         .errorlist { list-style: none; padding: 0; color: #fecaca; font-size: 0.875rem; margin-top: 0.5rem; }
@@ -29,7 +37,16 @@
             <label for="id_username">Username</label>
             {{ form.username }}
             <label for="id_password">Password</label>
-            {{ form.password }}
+            <div class="password-field">
+                {{ form.password }}
+                <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                </button>
+            </div>
             <button type="submit">Log in</button>
         </form>
         <p class="meta">
@@ -38,5 +55,16 @@
             <a href="/">← Continue without logging in</a>
         </p>
     </div>
+    <script>
+        document.querySelectorAll(".password-toggle").forEach((toggle) => {
+            toggle.addEventListener("click", () => {
+                const password = toggle.parentElement.querySelector("input");
+                const isVisible = password.type === "text";
+                password.type = isVisible ? "password" : "text";
+                toggle.setAttribute("aria-pressed", String(!isVisible));
+                toggle.setAttribute("aria-label", isVisible ? "Show password" : "Hide password");
+            });
+        });
+    </script>
 </body>
 </html>
