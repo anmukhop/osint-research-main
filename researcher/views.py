@@ -24,14 +24,17 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.views import LoginView
 from django.shortcuts import redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from .models import Team, TeamMembership, Notification, BrowsingEvent
 
 from .services.mcp_runtime import get_runtime
 from .services.mcp_client import ProgressUpdate
+from .services.llm_provider import get_provider
 from .services.tool_registry import (
     get_claude_tool_definitions,
     get_confirmation_message,
@@ -246,8 +249,39 @@ def active_team_context(request):
 
 
 def _set_active_team(request, team: Team) -> None:
-    """Stash the user's active team ID in their session."""
+    """Persist and stash the user's active team."""
+    TeamMembership.objects.filter(
+        user=request.user,
+        team=team,
+    ).update(last_active_at=timezone.now())
     request.session[ACTIVE_TEAM_SESSION_KEY] = team.id
+
+
+class TeamAwareLoginView(LoginView):
+    """Restore the user's most recently active team after authenticating."""
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        self.request.session.pop(ACTIVE_TEAM_SESSION_KEY, None)
+
+        membership = (
+            TeamMembership.objects
+            .filter(user=self.request.user, last_active_at__isnull=False)
+            .select_related("team")
+            .order_by("-last_active_at")
+            .first()
+        )
+        if membership is None:
+            membership = (
+                TeamMembership.objects
+                .filter(user=self.request.user)
+                .select_related("team")
+                .order_by("-joined_at")
+                .first()
+            )
+        if membership is not None:
+            _set_active_team(self.request, membership.team)
+        return response
 
 
 def _get_active_team(request) -> Team | None:
@@ -559,9 +593,6 @@ def parse_query(request):
         parent_query = _resolve_parent_query(request, session, parent_id_raw) if session else None
         history = _build_history_from_parent(parent_query)
 
-        from anthropic import Anthropic
-        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
         tools = get_claude_tool_definitions()
         system_prompt = f"""You are an OSINT query parser. Determine which tool to use for the user's query.
 
@@ -575,8 +606,8 @@ If the user's query refers to something from prior turns ("that domain", "its DN
         parse_messages = list(history)
         parse_messages.append({"role": "user", "content": user_query})
 
-        response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+        response = get_provider().create(
+            tier="main",
             max_tokens=512,
             system=system_prompt,
             tools=tools,
