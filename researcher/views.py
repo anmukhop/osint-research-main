@@ -34,7 +34,6 @@ from .models import Team, TeamMembership, Notification, BrowsingEvent
 
 from .services.mcp_runtime import get_runtime
 from .services.mcp_client import ProgressUpdate
-from .services.llm_provider import get_provider
 from .services.tool_registry import (
     get_claude_tool_definitions,
     get_confirmation_message,
@@ -593,6 +592,9 @@ def parse_query(request):
         parent_query = _resolve_parent_query(request, session, parent_id_raw) if session else None
         history = _build_history_from_parent(parent_query)
 
+        from anthropic import Anthropic
+        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
         tools = get_claude_tool_definitions()
         system_prompt = f"""You are an OSINT query parser. Determine which tool to use for the user's query.
 
@@ -606,8 +608,8 @@ If the user's query refers to something from prior turns ("that domain", "its DN
         parse_messages = list(history)
         parse_messages.append({"role": "user", "content": user_query})
 
-        response = get_provider().create(
-            tier="main",
+        response = client.messages.create(
+            model="claude-sonnet-4-5-20250929",
             max_tokens=512,
             system=system_prompt,
             tools=tools,

@@ -32,6 +32,7 @@ urlpatterns = [
     # Auth: signup is ours, everything else (login/logout/password reset)
     # is Django's built-in set under /accounts/.
     path('accounts/signup/', views.signup, name='signup'),
+    path('accounts/login/', views.TeamAwareLoginView.as_view(), name='login'),
     path('accounts/', include('django.contrib.auth.urls')),
 
     # Teams: create, join, switch, list.
