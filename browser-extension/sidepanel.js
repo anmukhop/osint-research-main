@@ -19,6 +19,8 @@ const clearBtn = document.getElementById("clearBtn");
 const remoteBtn = document.getElementById("remoteBtn");
 const appUrlInput = document.getElementById("appUrlInput");
 const saveUrlBtn = document.getElementById("saveUrlBtn");
+const groupStatus = document.getElementById("groupStatus");
+const groupBtn = document.getElementById("groupBtn");
 
 // ---------------------------------------------------------------------------
 // State
@@ -153,6 +155,34 @@ function renderEvents(events) {
 }
 
 // ---------------------------------------------------------------------------
+// Research tab group
+// ---------------------------------------------------------------------------
+
+function renderGroupStatus(group) {
+  if (!group || !group.groupTitle) {
+    groupStatus.textContent = "Only tabs in the OSINT tab group are captured.";
+    groupBtn.textContent = "Start OSINT tab group";
+    groupBtn.disabled = false;
+    return;
+  }
+  const title = group.groupTitle;
+  if (!group.groupExists) {
+    groupStatus.textContent = `No ${title} tab group yet. Nothing is being captured.`;
+    groupBtn.textContent = `Start ${title} tab group`;
+    groupBtn.disabled = false;
+  } else {
+    const tabs = `${group.tabCount} tab${group.tabCount === 1 ? "" : "s"}`;
+    groupStatus.textContent = `Capturing ${tabs} in the ${title} group. Other tabs are ignored.`;
+    groupBtn.textContent = group.activeTabInGroup ? "This tab is in the group" : `Add this tab to ${title}`;
+    groupBtn.disabled = group.activeTabInGroup;
+  }
+}
+
+async function refreshGroupStatus() {
+  renderGroupStatus(await msg("GET_GROUP_STATUS"));
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
 
@@ -166,6 +196,7 @@ async function init() {
   // Refresh status from background
   const { status = null } = await msg("GET_STATUS");
   renderStatus(status);
+  await refreshGroupStatus();
 
   // Load local events
   const { events = [] } = await msg("GET_EVENTS");
@@ -183,10 +214,31 @@ refreshBtn.addEventListener("click", async () => {
     renderStatus(status);
     const { events = [] } = await msg("GET_EVENTS");
     renderEvents(events);
+    await refreshGroupStatus();
   } finally {
     refreshBtn.style.opacity = "";
   }
 });
+
+groupBtn.addEventListener("click", async () => {
+  groupBtn.disabled = true;
+  const result = await msg("ADD_TAB_TO_GROUP");
+  if (result.ok) {
+    renderGroupStatus(result);
+  } else {
+    groupStatus.textContent = `Couldn't add this tab: ${result.error || "unknown error"}`;
+    groupBtn.disabled = false;
+  }
+});
+
+// Keep the group status current as tabs move in and out of groups.
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+  if ("groupId" in changeInfo) refreshGroupStatus();
+});
+chrome.tabs.onActivated.addListener(() => refreshGroupStatus());
+chrome.tabs.onRemoved.addListener(() => refreshGroupStatus());
+chrome.tabGroups.onUpdated.addListener(() => refreshGroupStatus());
+chrome.tabGroups.onRemoved.addListener(() => refreshGroupStatus());
 
 clearBtn.addEventListener("click", async () => {
   await msg("CLEAR_EVENTS");
