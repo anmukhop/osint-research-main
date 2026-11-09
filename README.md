@@ -61,6 +61,11 @@ Try the deployed app and use any of the example queries below.
 | Find social media accounts for a username | `Find all social media accounts for john_doe` |
 | Search across 600+ platforms | `Where does the username cryptoking123 exist online?` |
 
+### Breach Data
+| What you can do | Example query |
+|----------------|---------------|
+| Check an email address against known data breaches (XposedOrNot) | `Has test@example.com appeared in any data breaches?` |
+
 ---
 
 ## How It Works

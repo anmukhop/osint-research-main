@@ -56,6 +56,32 @@ TOOLS = {
         "category": "username"
     },
 
+    "email_breach_check": {
+        "name": "email_breach_check",
+        "description": "Check whether an email address appears in known data breaches (XposedOrNot), with each breach's year, size and what leaked.",
+        "confirmation": "check known data breaches for the email address {email}",
+        "server": "local",
+        "arguments": {
+            "email": {
+                "type": "string",
+                "required": True,
+                "description": "The email address to check (e.g., 'info@example.com')"
+            },
+            "max_breaches": {
+                "type": "integer",
+                "required": False,
+                "description": "Maximum number of breaches to list, newest first (default: 10)"
+            }
+        },
+        "examples": [
+            "Has test@example.com appeared in any data breaches?",
+            "Check info@example.com for data breaches",
+            "What leaked for sales@example.com?"
+        ],
+        "estimated_time": "2-5 seconds",
+        "category": "breach"
+    },
+
     # =========================================================================
     # WHOISXML API TOOLS (HTTP - hosted MCP server)
     # =========================================================================
@@ -570,8 +596,8 @@ SERVERS = {
     "local": {
         "name": "local",
         "type": "stdio",
-        "description": "Local OSINT tools (username search)",
-        "tools": ["username_search"],
+        "description": "Local OSINT tools (username search, email breach check)",
+        "tools": ["username_search", "email_breach_check"],
     },
     "whoisxml": {
         "name": "whoisxml",

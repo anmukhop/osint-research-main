@@ -48,7 +48,7 @@ _SERVER_CONNECT_TIMEOUT = 30.0
 # denylist) so new upstream tools stay hidden until someone reviews them.
 AGENT_ALLOWED_TOOLS = frozenset({
     # Local
-    "username_search",
+    "username_search", "email_breach_check",
     # WhoisXML (database lookups, cheap credits)
     "whois", "dns_lookup", "ipgeolocation", "ip_netblocks",
     "threat_intelligence", "vpn_proxy_detection", "account_balance",

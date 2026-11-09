@@ -987,3 +987,99 @@ class RequireLoginTests(TestCase):
     def test_default_allows_anonymous_use(self):
         self.assertEqual(self.client.get(reverse("index")).status_code, 200)
         self.assertContains(self.client.get(reverse("login")), "Continue without logging in")
+
+
+class EmailBreachCheckTests(TestCase):
+    """XposedOrNot email_breach_check tool. The API is faked; no network calls."""
+
+    def _breach(self, name, year, added, records=100, leaked="Email addresses;Passwords"):
+        return {
+            "breach": name, "details": "long text", "domain": f"{name.lower()}.com",
+            "industry": "Tech", "logo": "https://x/logo.png", "password_risk": "plaintext",
+            "verified": "Yes", "xposed_data": leaked, "xposed_date": year,
+            "xposed_records": records, "added": added,
+        }
+
+    def _fake_response(self, status=200, payload=None):
+        response = SimpleNamespace(status_code=status)
+        response.json = lambda: payload
+        return response
+
+    def _run(self, email="test@example.com", status=200, payload=None, **kwargs):
+        from researcher.services.agents.xposedornot import XposedOrNotAgent
+        with patch("researcher.services.agents.xposedornot.requests.get",
+                   return_value=self._fake_response(status, payload)) as get:
+            result = XposedOrNotAgent().run(email=email, **kwargs)
+        return result, get
+
+    def test_normal_result_is_tidy_and_newest_first(self):
+        payload = {
+            "ExposedBreaches": {"breaches_details": [
+                self._breach("Old", "2012", "2019-01-01T00:00:00+00:00"),
+                self._breach("Newest", "2026", "2026-11-05T00:00:00+00:00", records=445899,
+                             leaked="Email addresses;Names;Phone numbers"),
+                self._breach("Middle", "2020", "2021-01-01T00:00:00+00:00"),
+            ]},
+            "BreachMetrics": {"risk": [{"risk_label": "Critical", "risk_score": 100}]},
+            "ExposedPastes": None,
+        }
+        result, get = self._run(email="  Test@Example.com ", payload=payload, max_breaches=2)
+
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["email"], "test@example.com")
+        self.assertEqual(result["breach_count"], 3)
+        self.assertEqual((result["risk_label"], result["risk_score"]), ("Critical", 100))
+        self.assertEqual([b["name"] for b in result["breaches"]], ["Newest", "Middle"])
+        self.assertEqual(result["breaches"][0], {
+            "name": "Newest", "year": "2026", "records": 445899,
+            "leaked": ["Email addresses", "Names", "Phone numbers"],
+        })
+        self.assertEqual(get.call_args.kwargs["params"], {"email": "test@example.com"})
+        self.assertIn("User-Agent", get.call_args.kwargs["headers"])
+
+    def test_no_breaches_is_a_clean_empty_result(self):
+        payload = {"BreachMetrics": None, "ExposedBreaches": None, "ExposedPastes": None}
+        result, _ = self._run(payload=payload)
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["breach_count"], 0)
+        self.assertEqual(result["breaches"], [])
+        self.assertIsNone(result["risk_label"])
+
+    def test_rate_limit_and_other_error_statuses_return_an_error(self):
+        result, _ = self._run(status=429, payload={})
+        self.assertIn("429", result["error"])
+        result, _ = self._run(status=500, payload={})
+        self.assertIn("500", result["error"])
+        self.assertEqual(result["breaches"], [])
+
+    def test_timeout_returns_an_error_instead_of_raising(self):
+        import requests
+        from researcher.services.agents.xposedornot import XposedOrNotAgent
+        with patch("researcher.services.agents.xposedornot.requests.get",
+                   side_effect=requests.Timeout()):
+            result = XposedOrNotAgent().run(email="test@example.com")
+        self.assertIn("did not respond", result["error"])
+
+    def test_bad_input_is_rejected_without_calling_the_api(self):
+        for bad in ["", "   ", "not-an-email", "a@b", "two@@example.com", None, 42]:
+            with self.subTest(email=bad):
+                result, get = self._run(email=bad, payload={})
+                self.assertIsNotNone(result["error"])
+                get.assert_not_called()
+
+    def test_email_is_not_written_to_the_logs(self):
+        import io
+        from contextlib import redirect_stderr
+        payload = {"ExposedBreaches": None, "BreachMetrics": None}
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            self._run(email="secret-person@example.com", payload=payload)
+        self.assertNotIn("secret-person", captured.getvalue())
+
+    def test_tool_is_registered_visible_to_agent_and_confirms_naturally(self):
+        from researcher.services.mcp_client import AGENT_ALLOWED_TOOLS
+        from researcher.services.tool_registry import get_server_for_tool
+        self.assertIn("email_breach_check", AGENT_ALLOWED_TOOLS)
+        self.assertEqual(get_server_for_tool("email_breach_check"), "local")
+        msg, _, _ = get_confirmation_message("email_breach_check", {"email": "test@example.com"})
+        self.assertEqual(msg, "I'll check known data breaches for the email address 'test@example.com'.")
