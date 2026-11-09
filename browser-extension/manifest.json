@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "OSINT Context Assistant",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Captures browsing context for the OSINT Research Platform to enable context-aware research.",
 
   "permissions": [
     "tabs",
+    "tabGroups",
     "storage",
     "sidePanel",
     "webNavigation",

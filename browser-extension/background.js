@@ -3,6 +3,10 @@
 
 const DEFAULT_APP_URL = "https://osint-research-production.up.railway.app";
 
+// Only tabs inside a Chrome tab group with this title are captured.
+const RESEARCH_GROUP_TITLE = "OSINT";
+const RESEARCH_GROUP_COLOR = "blue";
+
 // ---------------------------------------------------------------------------
 // Storage helpers
 // ---------------------------------------------------------------------------
@@ -48,6 +52,56 @@ async function isAppUrl(url) {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Research tab group
+// Browsing is only captured in tabs that belong to a tab group titled
+// RESEARCH_GROUP_TITLE. Everything else the user does in the browser is ignored.
+// ---------------------------------------------------------------------------
+
+async function isInResearchGroup(tab) {
+  if (!tab || tab.groupId === undefined || tab.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE) {
+    return false;
+  }
+  const group = await chrome.tabGroups.get(tab.groupId).catch(() => null);
+  return group?.title === RESEARCH_GROUP_TITLE;
+}
+
+async function findResearchGroup(windowId) {
+  const groups = await chrome.tabGroups.query({ title: RESEARCH_GROUP_TITLE, windowId });
+  return groups[0] || null;
+}
+
+// Put the active tab of the focused window into the research group,
+// creating the group first if this window doesn't have one yet.
+async function addActiveTabToResearchGroup() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab) return { ok: false, error: "No active tab" };
+
+  const existing = await findResearchGroup(tab.windowId);
+  if (existing) {
+    await chrome.tabs.group({ groupId: existing.id, tabIds: [tab.id] });
+  } else {
+    const groupId = await chrome.tabs.group({ tabIds: [tab.id] });
+    await chrome.tabGroups.update(groupId, { title: RESEARCH_GROUP_TITLE, color: RESEARCH_GROUP_COLOR });
+  }
+  return { ok: true, ...(await getResearchGroupStatus()) };
+}
+
+async function getResearchGroupStatus() {
+  const groups = await chrome.tabGroups.query({ title: RESEARCH_GROUP_TITLE });
+  let tabCount = 0;
+  for (const group of groups) {
+    tabCount += (await chrome.tabs.query({ groupId: group.id })).length;
+  }
+  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return {
+    groupTitle: RESEARCH_GROUP_TITLE,
+    groupExists: groups.length > 0,
+    tabCount,
+    activeTabInGroup: await isInResearchGroup(activeTab),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +229,7 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
 
   const tab = await chrome.tabs.get(details.tabId).catch(() => null);
   if (!tab) return;
+  if (!(await isInResearchGroup(tab))) return;
 
   const searchQuery = extractSearchQuery(details.url);
   const eventType = (isSearchUrl(details.url) && searchQuery) ? "search" : "visit";
@@ -220,6 +275,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       // Skip search-box events originating from the OSINT app itself.
       if (sender.url && await isAppUrl(sender.url)) {
+        sendResponse({ ok: true, skipped: true });
+        return;
+      }
+      // Skip searches in tabs outside the research group.
+      if (!(await isInResearchGroup(sender.tab))) {
         sendResponse({ ok: true, skipped: true });
         return;
       }
@@ -271,6 +331,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "FETCH_REMOTE_EVENTS") {
     apiFetch("/api/extension/events/recent/")
       .then(data => sendResponse({ events: data?.events || [] }));
+    return true;
+  }
+  if (msg.type === "GET_GROUP_STATUS") {
+    getResearchGroupStatus().then(sendResponse);
+    return true;
+  }
+  if (msg.type === "ADD_TAB_TO_GROUP") {
+    addActiveTabToResearchGroup()
+      .then(sendResponse)
+      .catch((err) => {
+        console.warn("[OSINT] ADD_TAB_TO_GROUP failed:", err);
+        sendResponse({ ok: false, error: String(err) });
+      });
     return true;
   }
   if (msg.type === "SET_APP_URL") {

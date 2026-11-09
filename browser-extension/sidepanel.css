@@ -149,6 +149,35 @@ html, body {
 .text-btn.danger { color: var(--error); }
 .text-btn.danger:hover { background: rgba(239,68,68,0.1); }
 
+/* Research tab group */
+.group-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.group-status {
+  font-size: 11px;
+  color: var(--text-sec);
+}
+
+.group-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 5px 8px;
+  transition: opacity 0.15s;
+}
+.group-btn:hover { opacity: 0.9; }
+.group-btn:disabled { background: var(--bg-elevated); color: var(--text-muted); cursor: default; }
+
 /* Feed */
 .feed {
   overflow-y: auto;
