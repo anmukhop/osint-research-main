@@ -371,6 +371,77 @@ class TeamContextSimulationTests(TestCase):
         self.assertContains(response, "What DNS records exist for vt.edu?")
 
 
+class TeamPersistenceTests(TestCase):
+    def test_login_restores_last_active_team_after_logout(self):
+        User = get_user_model()
+        user = User.objects.create_user(username="team_user", password="test-password")
+        first_team = Team.objects.create(name="First Team", created_by=user)
+        second_team = Team.objects.create(name="Second Team", created_by=user)
+        first_membership = TeamMembership.objects.create(user=user, team=first_team)
+        second_membership = TeamMembership.objects.create(user=user, team=second_team)
+        TeamMembership.objects.filter(id=first_membership.id).update(
+            joined_at=django_tz.now() - timedelta(days=2)
+        )
+        TeamMembership.objects.filter(id=second_membership.id).update(
+            joined_at=django_tz.now() - timedelta(days=1)
+        )
+
+        self.client.post(
+            reverse("login"),
+            {"username": user.username, "password": "test-password"},
+        )
+        self.assertEqual(
+            self.client.session[views.ACTIVE_TEAM_SESSION_KEY],
+            second_team.id,
+        )
+
+        self.client.post(reverse("team_switch", args=[first_team.id]))
+        self.assertIsNotNone(
+            TeamMembership.objects.get(id=first_membership.id).last_active_at
+        )
+        self.client.post(reverse("logout"))
+        self.client.post(
+            reverse("login"),
+            {"username": user.username, "password": "test-password"},
+        )
+
+        self.assertEqual(
+            self.client.session[views.ACTIVE_TEAM_SESSION_KEY],
+            first_team.id,
+        )
+        response = self.client.get(reverse("index"))
+        self.assertEqual(response.context["active_team"], first_team)
+
+    def test_login_without_team_membership_does_not_set_active_team(self):
+        User = get_user_model()
+        user = User.objects.create_user(username="solo_user", password="test-password")
+
+        self.client.post(
+            reverse("login"),
+            {"username": user.username, "password": "test-password"},
+        )
+
+        self.assertNotIn(views.ACTIVE_TEAM_SESSION_KEY, self.client.session)
+
+
+class PasswordVisibilityTests(TestCase):
+    def test_login_password_has_visibility_toggle(self):
+        response = self.client.get(reverse("login"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'aria-label="Show password"')
+        self.assertContains(response, 'class="password-toggle"')
+        self.assertContains(response, 'name="password"')
+
+    def test_signup_password_fields_each_have_visibility_toggle(self):
+        response = self.client.get(reverse("signup"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.count(b'class="password-toggle"'), 2)
+        self.assertContains(response, 'name="password1"')
+        self.assertContains(response, 'name="password2"')
+
+
 class MCPClientConcurrencyTests(TestCase):
     def test_concurrent_queries_do_not_block_or_share_progress_callbacks(self):
         client = OSINTMCPClient.__new__(OSINTMCPClient)
@@ -875,3 +946,44 @@ class ConfirmationMessageTests(TestCase):
         msg, est_time, server = get_confirmation_message("not_a_tool", {"x": "y"})
         self.assertEqual(msg, "I'll run the not_a_tool tool with the provided parameters.")
         self.assertEqual((est_time, server), ("Unknown", "unknown"))
+
+
+@override_settings(ALLOWED_HOSTS=["testserver"])
+class RequireLoginTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="searcher", password="pw-12345-test")
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_anonymous_visitor_is_sent_to_login(self):
+        response = self.client.get(reverse("index"))
+        self.assertRedirects(response, f"{reverse('login')}?next=/", fetch_redirect_response=False)
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_anonymous_search_is_refused_without_running(self):
+        with patch.object(views, "Query") as query_model:
+            response = self.client.get(reverse("search_stream"), {"query": "whois example.com"})
+            body = b"".join(response.streaming_content)
+        self.assertEqual(response.status_code, 401)
+        self.assertIn(b"Please log in to search.", body)
+        query_model.objects.create.assert_not_called()
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_anonymous_parse_is_refused(self):
+        response = self.client.post(reverse("parse_query"), data=json.dumps({"query": "whois example.com"}),
+                                    content_type="application/json")
+        self.assertEqual(response.status_code, 401)
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_login_page_hides_continue_without_login_link(self):
+        response = self.client.get(reverse("login"))
+        self.assertNotContains(response, "Continue without logging in")
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_logged_in_user_can_open_search_page(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("index")).status_code, 200)
+
+    @override_settings(REQUIRE_LOGIN=False)
+    def test_default_allows_anonymous_use(self):
+        self.assertEqual(self.client.get(reverse("index")).status_code, 200)
+        self.assertContains(self.client.get(reverse("login")), "Continue without logging in")

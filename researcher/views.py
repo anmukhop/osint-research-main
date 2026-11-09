@@ -24,10 +24,14 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.views import LoginView
 from django.shortcuts import redirect
 from django.contrib.auth.decorators import login_required
+from django.conf import settings
+from django.contrib.auth.views import redirect_to_login
 from django.contrib import messages
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from .models import Team, TeamMembership, Notification, BrowsingEvent
 
 from .services.mcp_runtime import get_runtime
@@ -216,8 +220,14 @@ def _extension_cors(response, request):
     return response
 
 
+def _login_required_for_search(request) -> bool:
+    """True if REQUIRE_LOGIN is on and this visitor isn't logged in."""
+    return settings.REQUIRE_LOGIN and not request.user.is_authenticated
+
 def index(request):
     """Main page with the search form."""
+    if _login_required_for_search(request):
+        return redirect_to_login(request.get_full_path())
     return render(request, "researcher/index.html", {
         "context_aware_enabled": request.session.get(CONTEXT_AWARE_SESSION_KEY, False),
     })
@@ -247,8 +257,44 @@ def active_team_context(request):
 
 
 def _set_active_team(request, team: Team) -> None:
-    """Stash the user's active team ID in their session."""
+    """Persist and stash the user's active team."""
+    TeamMembership.objects.filter(
+        user=request.user,
+        team=team,
+    ).update(last_active_at=timezone.now())
     request.session[ACTIVE_TEAM_SESSION_KEY] = team.id
+
+
+class TeamAwareLoginView(LoginView):
+    """Restore the user's most recently active team after authenticating."""
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["require_login"] = settings.REQUIRE_LOGIN
+        return context
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        self.request.session.pop(ACTIVE_TEAM_SESSION_KEY, None)
+
+        membership = (
+            TeamMembership.objects
+            .filter(user=self.request.user, last_active_at__isnull=False)
+            .select_related("team")
+            .order_by("-last_active_at")
+            .first()
+        )
+        if membership is None:
+            membership = (
+                TeamMembership.objects
+                .filter(user=self.request.user)
+                .select_related("team")
+                .order_by("-joined_at")
+                .first()
+            )
+        if membership is not None:
+            _set_active_team(self.request, membership.team)
+        return response
 
 
 def _get_active_team(request) -> Team | None:
@@ -544,6 +590,8 @@ def parse_query(request):
     Parse a query and return the interpreted action for user confirmation.
     Unchanged from previous version — this doesn't hit MCP, just Anthropic.
     """
+    if _login_required_for_search(request):
+        return JsonResponse({"error": "Please log in to search."}, status=401)
     try:
         data = json.loads(request.body)
         user_query = data.get("query", "").strip()
@@ -680,6 +728,11 @@ def search_stream(request):
     Uses the shared MCPRuntime singleton — no per-request reconnect.
     Writes Query + ToolCall rows to the database on every call.
     """
+    if _login_required_for_search(request):
+        def error_stream():
+            yield f"event: error\ndata: {json.dumps({'error': 'Please log in to search.'})}\n\n"
+        return StreamingHttpResponse(error_stream(), content_type="text/event-stream", status=401)
+
     user_query = request.GET.get("query", "").strip()
 
     if not user_query:

@@ -157,3 +157,22 @@ These steps run the app on your own computer using the VT ARC LLM API (on the `m
      lsof -ti tcp:8000 -sTCP:LISTEN | xargs kill   # stop the server
      ```
 8. **Open http://localhost:8000**, sign up, and run a search, e.g. "Search the username hokiebird".
+
+## Sharing your local server with teammates (ngrok)
+
+Use this when teammates need to join your team on a copy that's only running on your laptop.
+
+1. **One-time setup:** `brew install ngrok`, make a free account at ngrok.com, then run `ngrok config add-authtoken <your token>` in your own terminal.
+2. **Add a secret key to `.env`** (the script won't start without one):
+   ```
+   DJANGO_SECRET_KEY=<output of: python3.11 -c 'from django.core.management.utils import get_random_secret_key as g; print(g())'>
+   ```
+3. **Stop your normal server**, then run `scripts/share_with_ngrok.sh`. It prints a link like `https://<name>.ngrok-free.dev`. Free accounts keep the same link every time.
+4. **Teammates open the link**, click **Visit Site** on ngrok's warning page (once per browser), sign up, and join your team with its invite code from the Teams page.
+5. **Press Ctrl+C** to stop sharing. Then start your normal server again.
+
+Notes:
+- **Your laptop has to be on the VT VPN.** All AI calls go out from your machine. Teammates don't need the VPN to use the link.
+- **Anyone with the link can reach the app.** While sharing, people must log in before they can search, but anyone can still sign up. Only share the link with your team, and stop sharing when you're done. Searches use your API credits.
+- While sharing, `DEBUG` is off, so errors show a plain error page instead of a traceback. Check `server.log` for details.
+- The browser extension still points to `localhost`, so it only works on your own laptop.

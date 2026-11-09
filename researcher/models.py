@@ -172,6 +172,7 @@ class TeamMembership(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='memberships')
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='memberships')
     joined_at = models.DateTimeField(auto_now_add=True)
+    last_active_at = models.DateTimeField(null=True, blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_MEMBER)
 
     class Meta:

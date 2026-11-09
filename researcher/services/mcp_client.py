@@ -31,6 +31,7 @@ from mcp.client.streamable_http import streamable_http_client
 from .llm_provider import get_provider
 
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -38,6 +39,25 @@ load_dotenv()
 # Per-server connection timeout. One slow/unavailable server (e.g. npx not
 # installed in the production container) must never block the whole runtime.
 _SERVER_CONNECT_TIMEOUT = 30.0
+
+# Tools the agent may see and call. Everything else the MCP servers expose is
+# hidden: tools that touch the target live (ssl_certificates, email_verification,
+# website_screenshot, domain_reputation, categorization), expensive
+# Domain Research Suite tools (subdomain_lookup, reverse_whois, typosquatting, ...),
+# bulk tools, and BuiltWith purchase/payment tools. An allowlist (not a
+# denylist) so new upstream tools stay hidden until someone reviews them.
+AGENT_ALLOWED_TOOLS = frozenset({
+    # Local
+    "username_search",
+    # WhoisXML (database lookups, cheap credits)
+    "whois", "dns_lookup", "ipgeolocation", "ip_netblocks",
+    "threat_intelligence", "vpn_proxy_detection", "account_balance",
+    # Shodan (database lookups)
+    "ip_lookup", "shodan_search", "shodan_count", "reverse_dns_lookup",
+    "cve_lookup", "cpe_lookup", "cves_by_product", "api_info", "search_filters",
+    # BuiltWith (free database lookup)
+    "free-api",
+})
 
 @dataclass
 class ServerConfig:
@@ -126,8 +146,9 @@ class MCPServerConnection:
                     cmd = self.config.command
                     args = self.config.args
                 elif self.config.script_path:
-                    # Python script (default)
-                    cmd = "python"
+                    # Python script (default). Use the interpreter running the
+                    # app, so the server sees the same installed packages.
+                    cmd = sys.executable
                     args = [self.config.script_path]
                 else:
                     raise ValueError(f"Server {self.config.name}: script_path or command+args required for stdio")
@@ -504,6 +525,7 @@ class OSINTMCPClient:
                 "input_schema": tool["input_schema"]
             }
             for tool in self._all_tools
+            if tool["name"] in AGENT_ALLOWED_TOOLS
         ]
     
     def get_server_for_tool(self, tool_name: str) -> Optional[str]:
@@ -629,6 +651,9 @@ class OSINTMCPClient:
         """
         Call a tool, automatically routing to the correct server.
         """
+        if tool_name not in AGENT_ALLOWED_TOOLS:
+            raise ValueError(f"Tool '{tool_name}' is disabled in this deployment")
+
         server_name = self._tool_to_server.get(tool_name)
         if not server_name:
             raise ValueError(f"Unknown tool: {tool_name}")
