@@ -898,6 +898,105 @@ class OpenAICompatProviderTests(TestCase):
             provider.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
 
 
+class AgentToolListTests(TestCase):
+    """Name clashes keep both tools, and the planner prompt lists only callable tools."""
+
+    def _client(self):
+        client = OSINTMCPClient.__new__(OSINTMCPClient)
+        client._tool_to_server = {}
+        client._upstream_name = {}
+        client._all_tools = []
+        return client
+
+    def _tool(self, name, server):
+        return {"name": name, "description": f"{server} {name}", "input_schema": {}, "server": server}
+
+    def _register_like_connect(self, client):
+        for server, names in [
+            ("local", ["username_search"]),
+            ("whoisxml", ["whois", "dns_lookup", "domain_info", "subdomain_lookup"]),
+            ("shodan", ["ip_lookup", "dns_lookup", "domain_info"]),
+        ]:
+            for name in names:
+                client._register_tool(self._tool(name, server), server)
+
+    def test_shodan_clashing_tools_are_prefixed_not_dropped(self):
+        client = self._client()
+        self._register_like_connect(client)
+        self.assertEqual(client._tool_to_server["domain_info"], "whoisxml")
+        self.assertEqual(client._tool_to_server["dns_lookup"], "whoisxml")
+        self.assertEqual(client._tool_to_server["shodan_domain_info"], "shodan")
+        self.assertEqual(client._tool_to_server["shodan_dns_lookup"], "shodan")
+        self.assertEqual(client._tool_to_server["ip_lookup"], "shodan")
+        names = [t["name"] for t in client._all_tools]
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_shodan_names_do_not_depend_on_connection_order(self):
+        # e.g. after the WhoisXML backup-key reconnect, WhoisXML registers last.
+        client = self._client()
+        for name in ["dns_lookup", "domain_info"]:
+            client._register_tool(self._tool(name, "shodan"), "shodan")
+        for name in ["dns_lookup", "domain_info"]:
+            client._register_tool(self._tool(name, "whoisxml"), "whoisxml")
+        self.assertEqual(client._tool_to_server["domain_info"], "whoisxml")
+        self.assertEqual(client._tool_to_server["shodan_domain_info"], "shodan")
+
+    def test_other_clashes_keep_the_second_tool_under_a_prefix(self):
+        client = self._client()
+        client._register_tool(self._tool("lookup", "whoisxml"), "whoisxml")
+        client._register_tool(self._tool("lookup", "builtwith"), "builtwith")
+        self.assertEqual(client._tool_to_server["builtwith_lookup"], "builtwith")
+        self.assertEqual(client._upstream_name["builtwith_lookup"], "lookup")
+
+    def test_prefixed_tool_is_called_by_its_real_name_on_its_server(self):
+        client = self._client()
+        self._register_like_connect(client)
+        seen = {}
+
+        class FakeConnection:
+            def __init__(self, server):
+                self.server = server
+
+            async def call_tool(self, name, arguments):
+                seen["call"] = (self.server, name, arguments)
+                return "ok"
+
+        client._connections = {s: FakeConnection(s) for s in ["local", "whoisxml", "shodan"]}
+        asyncio.run(client.call_tool("shodan_domain_info", {"domain": "vt.edu"}))
+        self.assertEqual(seen["call"], ("shodan", "domain_info", {"domain": "vt.edu"}))
+        asyncio.run(client.call_tool("whois", {"domainName": "vt.edu"}))
+        self.assertEqual(seen["call"], ("whoisxml", "whois", {"domainName": "vt.edu"}))
+
+    def test_planner_prompt_lists_exactly_the_callable_tools(self):
+        import re
+        from researcher.services.mcp_client import AGENT_ALLOWED_TOOLS
+        client = self._client()
+        self._register_like_connect(client)
+        tools = [
+            {"name": t["name"], "description": t["description"], "input_schema": {}}
+            for t in client._all_tools if t["name"] in AGENT_ALLOWED_TOOLS
+        ]
+        prompt = client._planner_system_prompt(tools)
+        section = prompt.split("AVAILABLE TOOLS")[1].split("RULES FOR TOOL USE")[0]
+        listed = {
+            name.strip()
+            for line in section.splitlines() if line.startswith("- ")
+            for name in line.split(": ", 1)[1].split(",")
+        }
+        self.assertEqual(listed, {t["name"] for t in tools})
+        self.assertIn("shodan_domain_info", listed)
+        self.assertNotIn("subdomain_lookup", prompt)  # hidden (0 WhoisXML credits)
+        self.assertNotIn("{tool_list}", prompt)
+        # Every tool named in the rules is one the agent can call.
+        rules = prompt.split("RULES FOR TOOL USE")[1].split("RULES FOR WHEN")[0]
+        for named in re.findall(r"'([a-z_-]+)'", rules):
+            self.assertIn(named, AGENT_ALLOWED_TOOLS)
+
+    def test_planner_prompt_with_no_tools_says_so(self):
+        prompt = self._client()._planner_system_prompt([])
+        self.assertIn("no tool servers are connected", prompt)
+
+
 class ConfirmationMessageTests(TestCase):
     """The "I'll ..." sentence shown in the Confirm Search box."""
 
