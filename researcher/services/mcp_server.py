@@ -6,6 +6,7 @@ This server can be connected to by any MCP client (Claude Desktop, custom client
 
 Tools exposed:
 - username_search: Search for a username across 600+ platforms
+- email_breach_check: Check an email address against known data breaches (XposedOrNot)
 - domain_whois: Look up WHOIS registration info for a domain
 - dns_lookup: Look up DNS records for a domain
 """
@@ -47,7 +48,29 @@ async def username_search(username: str, max_results: int = 100) -> dict:
     )
     print(f"[mcp_server] Agent finished. Error: {result.get('error')}, Found: {result.get('total_found')}", file=sys.stderr)
     return result
-    
+
+
+# TOOL: Email Breach Check (XposedOrNot)
+
+@mcp.tool()
+async def email_breach_check(email: str, max_breaches: int = 10) -> dict:
+    """
+    Check whether an email address appears in known data breaches (XposedOrNot database).
+    Returns the breach count, an overall risk label and score (0-100), and the most
+    recent breaches with name, year, number of records and what data leaked.
+    Passive lookup: it never contacts the address's owner. Use on an organization's
+    public addresses (e.g. info@, sales@), not on private individuals.
+    """
+    from agents.xposedornot import XposedOrNotAgent
+
+    agent = XposedOrNotAgent()
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: agent.run(email=email, max_breaches=max_breaches)
+    )
+
+
 # RESOURCES: Provide context about capabilities
 @mcp.resource("osint://capabilities")
 def get_capabilities() -> str:
@@ -74,6 +97,14 @@ Search for a username across 600+ platforms including:
 **Example queries:**
 - "Find all accounts for username cryptoking123"
 - "Search for john_doe on social media"
+
+### 2. email_breach_check
+Check an email address against XposedOrNot's database of known data breaches.
+Returns the breach count, a risk label and score, and the most recent breaches
+(name, year, records, what leaked). Passive; no API key.
+
+**Example queries:**
+- "Has test@example.com appeared in any data breaches?"
 
 ## Notes
 - Domain/IP intelligence (WHOIS, DNS, geolocation) is handled by the WhoisXML MCP server
