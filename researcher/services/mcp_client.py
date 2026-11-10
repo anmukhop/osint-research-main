@@ -54,6 +54,7 @@ AGENT_ALLOWED_TOOLS = frozenset({
     "threat_intelligence", "vpn_proxy_detection", "account_balance",
     # Shodan (database lookups)
     "ip_lookup", "shodan_search", "shodan_count", "reverse_dns_lookup",
+    "shodan_domain_info", "shodan_dns_lookup",
     "cve_lookup", "cpe_lookup", "cves_by_product", "api_info", "search_filters",
     # BuiltWith (free database lookup)
     "free-api",
@@ -278,6 +279,7 @@ class OSINTMCPClient:
         
         self._connections: dict[str, MCPServerConnection] = {}
         self._tool_to_server: dict[str, str] = {}  # Maps tool name -> server name
+        self._upstream_name: dict[str, str] = {}  # Exposed name -> server's real name (prefixed tools)
         self._all_tools: list[dict] = []
         self._connected = False
 
@@ -456,15 +458,7 @@ class OSINTMCPClient:
 
                 # Register tools from this server
                 for tool in connection.tools:
-                    tool_name = tool["name"]
-                    if tool_name in self._tool_to_server:
-                        original_server = self._tool_to_server[tool_name]
-                        print(f"Warning: Tool '{tool_name}' exists on both "
-                              f"'{original_server}' and '{name}'. "
-                              f"Using version from '{original_server}'.")
-                    else:
-                        self._tool_to_server[tool_name] = name
-                        self._all_tools.append(tool)
+                    self._register_tool(tool, name)
 
                 print(f"[{name}] Connected - {len(connection.tools)} tools")
 
@@ -508,6 +502,7 @@ class OSINTMCPClient:
             self._connected = False
             self._connections.clear()
             self._tool_to_server.clear()
+            self._upstream_name.clear()
             self._all_tools.clear()
             self._emit_progress("disconnected", "Disconnected from all MCP servers")
     
@@ -639,10 +634,7 @@ class OSINTMCPClient:
         # Re-register tools
         self._connections["whoisxml"] = new_conn
         for tool in new_conn.tools:
-            tname = tool["name"]
-            if tname not in self._tool_to_server:
-                self._tool_to_server[tname] = "whoisxml"
-                self._all_tools.append(tool)
+            self._register_tool(tool, "whoisxml")
 
         print(f"[whoisxml] Reconnected with backup key — {len(new_conn.tools)} tools available")
         return True
@@ -661,8 +653,40 @@ class OSINTMCPClient:
         connection = self._connections.get(server_name)
         if not connection:
             raise RuntimeError(f"Server '{server_name}' not connected")
-        
-        return await connection.call_tool(tool_name, arguments)
+
+        upstream_name = getattr(self, "_upstream_name", {}).get(tool_name, tool_name)
+        return await connection.call_tool(upstream_name, arguments)
+
+    # Tools always exposed under a server prefix because another server has a
+    # tool with the same name (WhoisXML's domain_info / dns_lookup). Fixed, so
+    # the names don't depend on which server connects first or reconnects.
+    _ALWAYS_PREFIXED = {
+        ("shodan", "domain_info"),
+        ("shodan", "dns_lookup"),
+    }
+
+    def _register_tool(self, tool: dict, server_name: str) -> None:
+        """Add a server's tool to the routing tables.
+
+        A tool in _ALWAYS_PREFIXED, or one whose name another server already
+        uses, is exposed as "<server>_<name>" (e.g. shodan_domain_info) and
+        mapped back to its real name when called, instead of being dropped.
+        """
+        name = tool["name"]
+        owner = self._tool_to_server.get(name)
+        clash = owner is not None and owner != server_name
+        if (server_name, name) in self._ALWAYS_PREFIXED or clash:
+            exposed = f"{server_name}_{name}"
+            if clash:
+                print(f"Note: tool '{name}' exists on both '{owner}' and "
+                      f"'{server_name}'; the {server_name} one is '{exposed}'.")
+            self._upstream_name[exposed] = name
+            tool = {**tool, "name": exposed}
+            name = exposed
+        if name in self._tool_to_server:
+            return
+        self._tool_to_server[name] = server_name
+        self._all_tools.append(tool)
     
     # Maximum number of tool-calling turns before the loop bails.
     # Each turn = one Claude call + zero-or-more tool executions.
@@ -670,30 +694,13 @@ class OSINTMCPClient:
 
     _PLANNER_SYSTEM_PROMPT = """You are an OSINT research assistant with access to specialized tools from multiple sources.
 
-AVAILABLE TOOL CATEGORIES:
+AVAILABLE TOOLS (these are the only tools you can call; each tool's own description says what it does):
 
-1. Username / Social Media (Local Server):
-   - username_search: Find social media accounts across 600+ platforms
-
-2. Domain Intelligence (WhoisXML API):
-   - whois, whois_history, reverse_whois
-   - dns_lookup, dns_history, reverse_dns, reverse_ip, reverse_mx, reverse_ns
-   - subdomains_lookup
-
-3. IP Intelligence (WhoisXML API):
-   - ip_geolocation, ip_netblocks
-
-4. Security & Verification (WhoisXML API):
-   - threat_intelligence, ssl_certificates, email_verification, categorization
-
-5. Network Reconnaissance (Shodan):
-   - host, dns-lookup, reverse-dns, cve-lookup
-
-6. Technology Detection (BuiltWith):
-   - free-api, trends-api
+{tool_list}
 
 RULES FOR TOOL USE:
-- For technology stack lookups, ALWAYS use 'free-api', NEVER 'domain-api' or 'domain-lookup'.
+- For technology stack lookups, ALWAYS use 'free-api'.
+- For subdomains of a domain, use 'shodan_domain_info'. It answers for the registered domain (e.g. vt.edu when asked about cs.vt.edu) and lists names without that ending, so for cs.vt.edu keep only names that are "cs" or end in ".cs". If it says there are more results, say the list covers only the first page.
 - You may call multiple tools across multiple turns to answer complex queries.
 - If the user's question needs several pieces of information, call tools one at a time, read the results, then decide what to call next.
 - When you have enough information to fully answer the user's question, stop calling tools and respond with a final text answer.
@@ -711,6 +718,32 @@ RULES FOR THE FINAL ANSWER:
 - Do NOT give advice, recommendations, or suggested workarounds.
 - Group related findings when presenting multiple tool results.
 """
+
+    _SERVER_LABELS = {
+        "local": "Local server",
+        "whoisxml": "WhoisXML API",
+        "shodan": "Shodan",
+        "builtwith": "BuiltWith",
+    }
+
+    def _planner_system_prompt(self, tools: list[dict]) -> str:
+        """The planner prompt, listing exactly the tools the agent can call now.
+
+        Built from the connected, allowlisted tools so the prompt never names
+        a tool the agent can't run (or uses the wrong name for one).
+        """
+        by_server: dict[str, list[str]] = {}
+        for tool in tools:
+            server = getattr(self, "_tool_to_server", {}).get(tool["name"], "other")
+            by_server.setdefault(server, []).append(tool["name"])
+        if by_server:
+            tool_list = "\n".join(
+                f"- {self._SERVER_LABELS.get(server, server)}: {', '.join(sorted(names))}"
+                for server, names in by_server.items()
+            )
+        else:
+            tool_list = "- (none: no tool servers are connected)"
+        return self._PLANNER_SYSTEM_PROMPT.replace("{tool_list}", tool_list)
 
     async def process_query(
         self,
@@ -785,7 +818,7 @@ RULES FOR THE FINAL ANSWER:
                         self.llm.create,
                         tier="main",
                         max_tokens=2048,
-                        system=self._PLANNER_SYSTEM_PROMPT,
+                        system=self._planner_system_prompt(tools),
                         tools=tools,
                         messages=messages,
                     )
