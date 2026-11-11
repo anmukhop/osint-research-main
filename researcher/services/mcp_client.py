@@ -41,24 +41,38 @@ load_dotenv()
 _SERVER_CONNECT_TIMEOUT = 30.0
 
 # Tools the agent may see and call. Everything else the MCP servers expose is
-# hidden: tools that touch the target live (ssl_certificates, email_verification,
-# website_screenshot, domain_reputation, categorization), expensive
-# Domain Research Suite tools (subdomain_lookup, reverse_whois, typosquatting, ...),
-# bulk tools, and BuiltWith purchase/payment tools. An allowlist (not a
+# hidden: WhoisXML Domain Research Suite tools (subdomain_lookup, reverse_whois,
+# whois_history, ...; no credits yet), website_screenshot, BuiltWith paid
+# lookups (no credits), and, never to be allowed, bulk_* tools and anything that
+# buys (BuiltWith payment-*, x402-*, mpp-purchase). An allowlist (not a
 # denylist) so new upstream tools stay hidden until someone reviews them.
+# Full table and reasons: docs/agent-tool-list.md.
 AGENT_ALLOWED_TOOLS = frozenset({
     # Local
     "username_search", "email_breach_check",
     # WhoisXML (database lookups, cheap credits)
     "whois", "dns_lookup", "ipgeolocation", "ip_netblocks",
     "threat_intelligence", "vpn_proxy_detection", "account_balance",
+    "disposable_email_check",
+    # WhoisXML (one live visit or check by WhoisXML)
+    "ssl_certificates", "email_verification", "categorization", "domain_reputation",
     # Shodan (database lookups)
     "ip_lookup", "shodan_search", "shodan_count", "reverse_dns_lookup",
     "shodan_domain_info", "shodan_dns_lookup",
     "cve_lookup", "cpe_lookup", "cves_by_product", "api_info", "search_filters",
-    # BuiltWith (free database lookup)
-    "free-api",
+    # BuiltWith (free lookups)
+    "free-api", "trends-api",
 })
+
+# Tools that contact the target or other live sites instead of reading a database.
+LIVE_CONTACT_TOOLS = frozenset({
+    "ssl_certificates", "email_verification", "categorization",
+    "domain_reputation", "username_search",
+})
+
+STEALTH = os.getenv("OSINT_STEALTH_MODE", "").strip().lower() == "true"
+if STEALTH:
+    AGENT_ALLOWED_TOOLS = AGENT_ALLOWED_TOOLS - LIVE_CONTACT_TOOLS
 
 @dataclass
 class ServerConfig:
@@ -645,6 +659,8 @@ class OSINTMCPClient:
         """
         if tool_name not in AGENT_ALLOWED_TOOLS:
             raise ValueError(f"Tool '{tool_name}' is disabled in this deployment")
+        if tool_name == "domain_reputation":
+            arguments = {**arguments, "mode": "fast"}  # "full" costs more and probes live
 
         server_name = self._tool_to_server.get(tool_name)
         if not server_name:
@@ -701,7 +717,7 @@ AVAILABLE TOOLS (these are the only tools you can call; each tool's own descript
 RULES FOR TOOL USE:
 - For technology stack lookups, ALWAYS use 'free-api'.
 - For subdomains of a domain, use 'shodan_domain_info'. It answers for the registered domain (e.g. vt.edu when asked about cs.vt.edu) and lists names without that ending, so for cs.vt.edu keep only names that are "cs" or end in ".cs". If it says there are more results, say the list covers only the first page.
-- You may call multiple tools across multiple turns to answer complex queries.
+{live_tools_rule}- You may call multiple tools across multiple turns to answer complex queries.
 - If the user's question needs several pieces of information, call tools one at a time, read the results, then decide what to call next.
 - When you have enough information to fully answer the user's question, stop calling tools and respond with a final text answer.
 
@@ -743,7 +759,22 @@ RULES FOR THE FINAL ANSWER:
             )
         else:
             tool_list = "- (none: no tool servers are connected)"
-        return self._PLANNER_SYSTEM_PROMPT.replace("{tool_list}", tool_list)
+        live = sorted(t["name"] for t in tools if t["name"] in LIVE_CONTACT_TOOLS)
+        if live:
+            live_tools_rule = (
+                f"- These tools contact the target or other live sites instead of reading a database: "
+                f"{', '.join(live)}. If the user asks for passive-only work, do not call them.\n"
+            )
+        elif STEALTH:
+            live_tools_rule = (
+                "- Tools that contact the target live are switched off here. If a question "
+                "needs one, say you can't do that part.\n"
+            )
+        else:
+            live_tools_rule = ""
+        return (self._PLANNER_SYSTEM_PROMPT
+                .replace("{tool_list}", tool_list)
+                .replace("{live_tools_rule}", live_tools_rule))
 
     async def process_query(
         self,

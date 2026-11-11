@@ -997,6 +997,82 @@ class AgentToolListTests(TestCase):
         self.assertIn("no tool servers are connected", prompt)
 
 
+class AgentToolReviewTests(TestCase):
+    """The reviewed allowlist (docs/agent-tool-list.md), stealth mode, live-tool labels."""
+
+    def _reload(self, stealth):
+        import importlib
+        import os
+        from unittest import mock
+        import researcher.services.mcp_client as mod
+        env = {"OSINT_STEALTH_MODE": "true"} if stealth else {}
+        with mock.patch.dict(os.environ, env):
+            if not stealth:
+                os.environ.pop("OSINT_STEALTH_MODE", None)
+            return importlib.reload(mod)
+
+    def tearDown(self):
+        self._reload(stealth=False)
+
+    def _prompt(self, mod, names):
+        client = mod.OSINTMCPClient.__new__(mod.OSINTMCPClient)
+        client._tool_to_server = {}
+        tools = [{"name": n, "description": "", "input_schema": {}}
+                 for n in names if n in mod.AGENT_ALLOWED_TOOLS]
+        return client._planner_system_prompt(tools)
+
+    def test_reviewed_tools_are_allowed_by_default(self):
+        mod = self._reload(stealth=False)
+        for name in ["ssl_certificates", "email_verification", "categorization",
+                     "domain_reputation", "disposable_email_check", "trends-api",
+                     "username_search", "free-api"]:
+            self.assertIn(name, mod.AGENT_ALLOWED_TOOLS)
+
+    def test_hidden_and_banned_tools_stay_off(self):
+        mod = self._reload(stealth=False)
+        for name in ["subdomain_lookup", "reverse_whois", "whois_history", "reverse_ip",
+                     "website_screenshot", "domain-api", "bulk_whois",
+                     "bulk_email_verification", "payment-purchase",
+                     "x402-credit-purchase", "mpp-purchase"]:
+            self.assertNotIn(name, mod.AGENT_ALLOWED_TOOLS)
+
+    def test_stealth_mode_removes_live_contact_tools(self):
+        mod = self._reload(stealth=True)
+        for name in mod.LIVE_CONTACT_TOOLS:
+            self.assertNotIn(name, mod.AGENT_ALLOWED_TOOLS)
+        self.assertIn("username_search", mod.LIVE_CONTACT_TOOLS)
+        self.assertIn("whois", mod.AGENT_ALLOWED_TOOLS)
+        prompt = self._prompt(mod, ["whois", "email_verification"])
+        self.assertNotIn("email_verification", prompt)
+        self.assertIn("switched off", prompt)
+
+    def test_prompt_labels_live_tools_only_when_present(self):
+        mod = self._reload(stealth=False)
+        prompt = self._prompt(mod, ["whois", "ssl_certificates", "username_search"])
+        rule = [l for l in prompt.splitlines() if "passive-only" in l]
+        self.assertEqual(len(rule), 1)
+        self.assertIn("ssl_certificates, username_search", rule[0])
+        self.assertNotIn("whois", rule[0])
+        self.assertNotIn("switched off", prompt)
+        self.assertNotIn("{live_tools_rule}", prompt)
+        self.assertNotIn("passive-only", self._prompt(mod, ["whois"]))
+
+    def test_domain_reputation_is_forced_to_fast_mode(self):
+        mod = self._reload(stealth=False)
+        client = mod.OSINTMCPClient.__new__(mod.OSINTMCPClient)
+        client._tool_to_server = {"domain_reputation": "whoisxml"}
+        client._upstream_name = {}
+        seen = {}
+
+        class FakeConnection:
+            async def call_tool(self, name, arguments):
+                seen["args"] = arguments
+
+        client._connections = {"whoisxml": FakeConnection()}
+        asyncio.run(client.call_tool("domain_reputation", {"domain_name": "x.org", "mode": "full"}))
+        self.assertEqual(seen["args"], {"domain_name": "x.org", "mode": "fast"})
+
+
 class ConfirmationMessageTests(TestCase):
     """The "I'll ..." sentence shown in the Confirm Search box."""
 
