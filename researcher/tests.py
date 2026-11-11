@@ -1206,11 +1206,18 @@ class EmailBreachCheckTests(TestCase):
         self.assertEqual((result["risk_label"], result["risk_score"]), ("Critical", 100))
         self.assertEqual([b["name"] for b in result["breaches"]], ["Newest", "Middle"])
         self.assertEqual(result["breaches"][0], {
-            "name": "Newest", "year": "2026", "records": 445899,
+            "name": "Newest", "domain": "newest.com", "year": "2026", "records": 445899,
             "leaked": ["Email addresses", "Names", "Phone numbers"],
         })
         self.assertEqual(get.call_args.kwargs["params"], {"email": "test@example.com"})
         self.assertIn("User-Agent", get.call_args.kwargs["headers"])
+
+    def test_breach_without_a_domain_gives_none(self):
+        breach = self._breach("NoSite", "2024", "2024-01-01T00:00:00+00:00")
+        breach["domain"] = ""
+        payload = {"ExposedBreaches": {"breaches_details": [breach]}, "BreachMetrics": None}
+        result, _ = self._run(payload=payload)
+        self.assertIsNone(result["breaches"][0]["domain"])
 
     def test_no_breaches_is_a_clean_empty_result(self):
         payload = {"BreachMetrics": None, "ExposedBreaches": None, "ExposedPastes": None}
