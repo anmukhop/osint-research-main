@@ -1836,6 +1836,14 @@
                 confirmedAction = data.interpreted_action;
                 confirmedParams = data.interpreted_params;
 
+                // No tool to approve: skip the confirmation box and let the
+                // agent answer straight away.
+                if (data.no_tool) {
+                    isSubmitting = false;
+                    executeSearch();
+                    return;
+                }
+
                 document.getElementById('confirmationMessage').textContent = data.confirmation_message;
                 document.getElementById('confirmAction').textContent = data.interpreted_action;
                 document.getElementById('confirmParams').textContent = JSON.stringify(data.interpreted_params);
