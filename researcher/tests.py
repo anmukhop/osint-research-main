@@ -744,6 +744,34 @@ class QueryApprovalAndCancellationTests(TestCase):
         self.assertIn("whois", payload["confirmation_message"])
         self.assertIn("dns_lookup", payload["confirmation_message"])
 
+    def test_parse_query_without_tool_hands_question_to_agent(self):
+        """A judgment question ("which hosts are most sensitive?") needs no
+        tool. The parser must not report that as an error: it returns
+        success with no_tool so the page sends it straight to the agent,
+        which answers in full and saves it to the thread."""
+        class FakeMessages:
+            def create(self, **kwargs):
+                return SimpleNamespace(content=[
+                    SimpleNamespace(type="text", text="No tool calls needed — ranking from prior results."),
+                ])
+
+        class FakeAnthropic:
+            def __init__(self, **kwargs):
+                self.messages = FakeMessages()
+
+        with patch("researcher.views.get_provider", lambda: AnthropicProvider(client=FakeAnthropic())):
+            response = self.client.post(
+                reverse("parse_query"),
+                data=json.dumps({"query": "Which of these hosts are the most sensitive?"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload["no_tool"])
+        self.assertNotIn("error", payload)
+
     def test_disconnected_in_flight_query_stays_pending_for_background_worker(self):
         session = Session.objects.create()
         query = Query.objects.create(session=session, user_query="Investigate vt.edu")
