@@ -704,7 +704,8 @@ class QueryApprovalAndCancellationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Run a new query")
-        self.assertContains(response, "https://osint-research-production.up.railway.app/")
+        self.assertContains(response, '<a href="/" class="primary" id="newWorkspaceQuery">')
+        self.assertNotContains(response, "railway.app")
         self.assertContains(response, "detailPane")
         self.assertContains(response, "workspace-query-data")
         self.assertContains(response, "Team Context")
