@@ -15,18 +15,16 @@ import logging
 import os
 from datetime import timedelta
 
-from anthropic import Anthropic
+from .llm_provider import get_provider
 from django.utils import timezone as django_tz
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
 SUMMARY_TTL_MINUTES = 3
 EVENT_WINDOW_MINUTES = 10
 
-_client = None
 
 OSINT_PLATFORM_CONTEXT = """Platform background:
 - The Railway app at https://osint-research-production.up.railway.app/ is the AI agent/workbench for a team of 2 participants collaborating on CTF-style challenges that exercise OSINT skills.
@@ -36,11 +34,8 @@ OSINT_PLATFORM_CONTEXT = """Platform background:
 - Treat OSINT research app queries and relevant browsing/search events as evidence of work already done. AI suggestions should not repeat those actions; they should propose the next best tool-backed step."""
 
 
-def _get_client() -> Anthropic:
-    global _client
-    if _client is None:
-        _client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-    return _client
+def _get_client():
+    return get_provider()
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +173,8 @@ def _call_summary(team_name: str, events_text: str) -> dict:
     """Ask Haiku to produce a structured JSON summary of team browsing."""
     prompt = _build_summary_prompt(team_name, events_text)
     try:
-        resp = _get_client().messages.create(
-            model=HAIKU_MODEL,
+        resp = _get_client().create(
+            tier="fast",
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -263,8 +258,8 @@ def _call_suggestions(summary: dict) -> list[dict]:
     """Ask Haiku for one confident OSINT query grounded in the tool registry."""
     prompt = _build_suggestions_prompt(summary)
     try:
-        resp = _get_client().messages.create(
-            model=HAIKU_MODEL,
+        resp = _get_client().create(
+            tier="fast",
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -382,8 +377,9 @@ def run_team_context_prompt_simulation(team=None) -> dict:
     summary_error = ""
     suggestions_error = ""
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        summary_error = "ANTHROPIC_API_KEY is not set, so the live Haiku prompt was not executed."
+    provider = _get_client()
+    if not provider.is_configured():
+        summary_error = f"LLM provider '{provider.name}' is not configured, so the live prompt was not executed."
     else:
         try:
             summary = _call_summary(team_name, events_text)
@@ -410,7 +406,7 @@ def run_team_context_prompt_simulation(team=None) -> dict:
         "suggestions_prompt": suggestions_prompt,
         "suggestions": suggestions,
         "suggestions_error": suggestions_error,
-        "model": HAIKU_MODEL,
+        "model": provider.model_for("fast"),
     }
 
 

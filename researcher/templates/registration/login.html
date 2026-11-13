@@ -51,8 +51,10 @@
         </form>
         <p class="meta">
             No account? <a href="{% url 'signup' %}">Sign up</a>
+            {% if not require_login %}
             <br>
             <a href="/">← Continue without logging in</a>
+            {% endif %}
         </p>
     </div>
     <script>

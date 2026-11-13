@@ -32,6 +32,11 @@ DEBUG = os.getenv("DEBUG", "True") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
 
+# When True, only logged-in users can open the search page or run searches.
+# scripts/share_with_ngrok.sh turns this on so strangers with the link
+# can't spend API credits.
+REQUIRE_LOGIN = os.getenv("REQUIRE_LOGIN", "False") == "True"
+
 
 # Application definition
 

@@ -27,6 +27,8 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.views import LoginView
 from django.shortcuts import redirect
 from django.contrib.auth.decorators import login_required
+from django.conf import settings
+from django.contrib.auth.views import redirect_to_login
 from django.contrib import messages
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -34,6 +36,7 @@ from .models import Team, TeamMembership, Notification, BrowsingEvent
 
 from .services.mcp_runtime import get_runtime
 from .services.mcp_client import ProgressUpdate
+from .services.llm_provider import get_provider
 from .services.tool_registry import (
     get_claude_tool_definitions,
     get_confirmation_message,
@@ -217,8 +220,14 @@ def _extension_cors(response, request):
     return response
 
 
+def _login_required_for_search(request) -> bool:
+    """True if REQUIRE_LOGIN is on and this visitor isn't logged in."""
+    return settings.REQUIRE_LOGIN and not request.user.is_authenticated
+
 def index(request):
     """Main page with the search form."""
+    if _login_required_for_search(request):
+        return redirect_to_login(request.get_full_path())
     return render(request, "researcher/index.html", {
         "context_aware_enabled": request.session.get(CONTEXT_AWARE_SESSION_KEY, False),
     })
@@ -258,6 +267,11 @@ def _set_active_team(request, team: Team) -> None:
 
 class TeamAwareLoginView(LoginView):
     """Restore the user's most recently active team after authenticating."""
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["require_login"] = settings.REQUIRE_LOGIN
+        return context
 
     def form_valid(self, form):
         response = super().form_valid(form)
@@ -576,6 +590,8 @@ def parse_query(request):
     Parse a query and return the interpreted action for user confirmation.
     Unchanged from previous version — this doesn't hit MCP, just Anthropic.
     """
+    if _login_required_for_search(request):
+        return JsonResponse({"error": "Please log in to search."}, status=401)
     try:
         data = json.loads(request.body)
         user_query = data.get("query", "").strip()
@@ -592,9 +608,6 @@ def parse_query(request):
         parent_query = _resolve_parent_query(request, session, parent_id_raw) if session else None
         history = _build_history_from_parent(parent_query)
 
-        from anthropic import Anthropic
-        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
         tools = get_claude_tool_definitions()
         system_prompt = f"""You are an OSINT query parser. Determine which tool to use for the user's query.
 
@@ -608,8 +621,8 @@ If the user's query refers to something from prior turns ("that domain", "its DN
         parse_messages = list(history)
         parse_messages.append({"role": "user", "content": user_query})
 
-        response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+        response = get_provider().create(
+            tier="main",
             max_tokens=512,
             system=system_prompt,
             tools=tools,
@@ -638,11 +651,18 @@ If the user's query refers to something from prior turns ("that domain", "its DN
                     "tool_plan": tool_plan,
                 })
 
-        for block in response.content:
-            if block.type == "text":
-                return JsonResponse({"success": False, "error": block.text})
-
-        return JsonResponse({"success": False, "error": "Could not understand query"})
+        # No tool chosen: a judgment question about earlier results, or one
+        # that needs clarifying. That's not an error. Hand it to the agent,
+        # which answers in full (the parser's 512-token reply gets cut off)
+        # and saves the answer to the thread so follow-ups can see it.
+        return JsonResponse({
+            "success": True,
+            "no_tool": True,
+            "interpreted_action": "",
+            "interpreted_params": {},
+            "confirmation_message": "No tool needed; the agent will answer directly.",
+            "tool_plan": [],
+        })
 
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
@@ -715,6 +735,11 @@ def search_stream(request):
     Uses the shared MCPRuntime singleton — no per-request reconnect.
     Writes Query + ToolCall rows to the database on every call.
     """
+    if _login_required_for_search(request):
+        def error_stream():
+            yield f"event: error\ndata: {json.dumps({'error': 'Please log in to search.'})}\n\n"
+        return StreamingHttpResponse(error_stream(), content_type="text/event-stream", status=401)
+
     user_query = request.GET.get("query", "").strip()
 
     if not user_query:

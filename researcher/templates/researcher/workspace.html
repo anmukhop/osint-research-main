@@ -513,7 +513,7 @@
         <span class="toggle-switch"><span class="toggle-knob"></span></span>
         <span id="contextToggleLabel">Context {% if context_aware_enabled %}ON{% else %}OFF{% endif %}</span>
       </button>
-      <a href="https://osint-research-production.up.railway.app/" class="primary" id="newWorkspaceQuery">+ New search</a>
+      <a href="/" class="primary" id="newWorkspaceQuery">+ New search</a>
       <a href="{% url 'teams_list' %}">My teams</a>
       <span class="bell-wrap">
         <button class="bell-btn" id="bellBtn" type="button" aria-label="Notifications">
@@ -1000,6 +1000,13 @@
         }
         confirmedAction = data.interpreted_action;
         confirmedParams = data.interpreted_params;
+        // No tool to approve: skip the confirmation box and let the agent
+        // answer straight away.
+        if (data.no_tool) {
+          setBusy(false);
+          executeSearch();
+          return;
+        }
         confirmationMessage.textContent = data.confirmation_message;
         confirmAction.textContent = data.interpreted_action;
         confirmParams.textContent = JSON.stringify(data.interpreted_params);

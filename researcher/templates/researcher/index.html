@@ -1498,6 +1498,7 @@
                 <span onclick="setQuery('Find all social media accounts for test_user')">Username search</span>
                 <span onclick="setQuery('Who owns github.com?')">WHOIS lookup</span>
                 <span onclick="setQuery('What are the DNS records for google.com?')">DNS lookup</span>
+                <span onclick="setQuery('Have any vt.edu employees had credentials stolen by infostealer malware?')">Hudson Rock Cavalier</span>
             </div>
         </div>
 
@@ -1835,6 +1836,14 @@
                 // Show confirmation
                 confirmedAction = data.interpreted_action;
                 confirmedParams = data.interpreted_params;
+
+                // No tool to approve: skip the confirmation box and let the
+                // agent answer straight away.
+                if (data.no_tool) {
+                    isSubmitting = false;
+                    executeSearch();
+                    return;
+                }
 
                 document.getElementById('confirmationMessage').textContent = data.confirmation_message;
                 document.getElementById('confirmAction').textContent = data.interpreted_action;

@@ -17,13 +17,12 @@ import logging
 import os
 from typing import Optional
 
-from anthropic import Anthropic
+from .llm_provider import get_provider
 
 logger = logging.getLogger(__name__)
 
-# Haiku: ~60x cheaper than Sonnet for input tokens, plenty smart enough
-# for "generate 3 related questions" tasks.
-_MODEL = "claude-haiku-4-5-20251001"
+# Runs on the provider's "fast" tier (Haiku on Anthropic, LLM_FAST_MODEL
+# otherwise): plenty smart enough for "generate 3 related questions" tasks.
 _MAX_TOKENS = 400
 _NUM_SUGGESTIONS = 3
 
@@ -60,9 +59,9 @@ def generate_followups(
     if not user_query:
         return []
 
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        logger.warning("generate_followups: ANTHROPIC_API_KEY not set")
+    provider = get_provider()
+    if not provider.is_configured():
+        logger.warning("generate_followups: LLM provider %s not configured", provider.name)
         return []
 
     # Build a compact context summary. We deliberately don't pass the full
@@ -83,9 +82,8 @@ def generate_followups(
     user_message = "\n\n".join(context_lines)
 
     try:
-        client = Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model=_MODEL,
+        response = provider.create(
+            tier="fast",
             max_tokens=_MAX_TOKENS,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],

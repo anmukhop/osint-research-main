@@ -28,9 +28,10 @@ from dataclasses import dataclass, field
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from anthropic import Anthropic
+from .llm_provider import get_provider
 
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -38,6 +39,40 @@ load_dotenv()
 # Per-server connection timeout. One slow/unavailable server (e.g. npx not
 # installed in the production container) must never block the whole runtime.
 _SERVER_CONNECT_TIMEOUT = 30.0
+
+# Tools the agent may see and call. Everything else the MCP servers expose is
+# hidden: WhoisXML Domain Research Suite tools (subdomain_lookup, reverse_whois,
+# whois_history, ...; no credits yet), website_screenshot, BuiltWith paid
+# lookups (no credits), and, never to be allowed, bulk_* tools and anything that
+# buys (BuiltWith payment-*, x402-*, mpp-purchase). An allowlist (not a
+# denylist) so new upstream tools stay hidden until someone reviews them.
+# Full table and reasons: docs/agent-tool-list.md.
+AGENT_ALLOWED_TOOLS = frozenset({
+    # Local
+    "username_search", "email_breach_check", "infostealer_domain_search",
+    # WhoisXML (database lookups, cheap credits)
+    "whois", "dns_lookup", "ipgeolocation", "ip_netblocks",
+    "threat_intelligence", "vpn_proxy_detection", "account_balance",
+    "disposable_email_check",
+    # WhoisXML (one live visit or check by WhoisXML)
+    "ssl_certificates", "email_verification", "categorization", "domain_reputation",
+    # Shodan (database lookups)
+    "ip_lookup", "shodan_search", "shodan_count", "reverse_dns_lookup",
+    "shodan_domain_info", "shodan_dns_lookup",
+    "cve_lookup", "cpe_lookup", "cves_by_product", "api_info", "search_filters",
+    # BuiltWith (free lookups)
+    "free-api", "trends-api",
+})
+
+# Tools that contact the target or other live sites instead of reading a database.
+LIVE_CONTACT_TOOLS = frozenset({
+    "ssl_certificates", "email_verification", "categorization",
+    "domain_reputation", "username_search",
+})
+
+STEALTH = os.getenv("OSINT_STEALTH_MODE", "").strip().lower() == "true"
+if STEALTH:
+    AGENT_ALLOWED_TOOLS = AGENT_ALLOWED_TOOLS - LIVE_CONTACT_TOOLS
 
 @dataclass
 class ServerConfig:
@@ -126,8 +161,9 @@ class MCPServerConnection:
                     cmd = self.config.command
                     args = self.config.args
                 elif self.config.script_path:
-                    # Python script (default)
-                    cmd = "python"
+                    # Python script (default). Use the interpreter running the
+                    # app, so the server sees the same installed packages.
+                    cmd = sys.executable
                     args = [self.config.script_path]
                 else:
                     raise ValueError(f"Server {self.config.name}: script_path or command+args required for stdio")
@@ -231,7 +267,7 @@ class OSINTMCPClient:
         """
         self.progress_callback = progress_callback
         self.exit_stack = AsyncExitStack()
-        self.anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.llm = get_provider()
         
         # Build server list
         self.servers: list[ServerConfig] = []
@@ -257,6 +293,7 @@ class OSINTMCPClient:
         
         self._connections: dict[str, MCPServerConnection] = {}
         self._tool_to_server: dict[str, str] = {}  # Maps tool name -> server name
+        self._upstream_name: dict[str, str] = {}  # Exposed name -> server's real name (prefixed tools)
         self._all_tools: list[dict] = []
         self._connected = False
 
@@ -435,15 +472,7 @@ class OSINTMCPClient:
 
                 # Register tools from this server
                 for tool in connection.tools:
-                    tool_name = tool["name"]
-                    if tool_name in self._tool_to_server:
-                        original_server = self._tool_to_server[tool_name]
-                        print(f"Warning: Tool '{tool_name}' exists on both "
-                              f"'{original_server}' and '{name}'. "
-                              f"Using version from '{original_server}'.")
-                    else:
-                        self._tool_to_server[tool_name] = name
-                        self._all_tools.append(tool)
+                    self._register_tool(tool, name)
 
                 print(f"[{name}] Connected - {len(connection.tools)} tools")
 
@@ -487,6 +516,7 @@ class OSINTMCPClient:
             self._connected = False
             self._connections.clear()
             self._tool_to_server.clear()
+            self._upstream_name.clear()
             self._all_tools.clear()
             self._emit_progress("disconnected", "Disconnected from all MCP servers")
     
@@ -504,6 +534,7 @@ class OSINTMCPClient:
                 "input_schema": tool["input_schema"]
             }
             for tool in self._all_tools
+            if tool["name"] in AGENT_ALLOWED_TOOLS
         ]
     
     def get_server_for_tool(self, tool_name: str) -> Optional[str]:
@@ -617,10 +648,7 @@ class OSINTMCPClient:
         # Re-register tools
         self._connections["whoisxml"] = new_conn
         for tool in new_conn.tools:
-            tname = tool["name"]
-            if tname not in self._tool_to_server:
-                self._tool_to_server[tname] = "whoisxml"
-                self._all_tools.append(tool)
+            self._register_tool(tool, "whoisxml")
 
         print(f"[whoisxml] Reconnected with backup key — {len(new_conn.tools)} tools available")
         return True
@@ -629,6 +657,11 @@ class OSINTMCPClient:
         """
         Call a tool, automatically routing to the correct server.
         """
+        if tool_name not in AGENT_ALLOWED_TOOLS:
+            raise ValueError(f"Tool '{tool_name}' is disabled in this deployment")
+        if tool_name == "domain_reputation":
+            arguments = {**arguments, "mode": "fast"}  # "full" costs more and probes live
+
         server_name = self._tool_to_server.get(tool_name)
         if not server_name:
             raise ValueError(f"Unknown tool: {tool_name}")
@@ -636,8 +669,40 @@ class OSINTMCPClient:
         connection = self._connections.get(server_name)
         if not connection:
             raise RuntimeError(f"Server '{server_name}' not connected")
-        
-        return await connection.call_tool(tool_name, arguments)
+
+        upstream_name = getattr(self, "_upstream_name", {}).get(tool_name, tool_name)
+        return await connection.call_tool(upstream_name, arguments)
+
+    # Tools always exposed under a server prefix because another server has a
+    # tool with the same name (WhoisXML's domain_info / dns_lookup). Fixed, so
+    # the names don't depend on which server connects first or reconnects.
+    _ALWAYS_PREFIXED = {
+        ("shodan", "domain_info"),
+        ("shodan", "dns_lookup"),
+    }
+
+    def _register_tool(self, tool: dict, server_name: str) -> None:
+        """Add a server's tool to the routing tables.
+
+        A tool in _ALWAYS_PREFIXED, or one whose name another server already
+        uses, is exposed as "<server>_<name>" (e.g. shodan_domain_info) and
+        mapped back to its real name when called, instead of being dropped.
+        """
+        name = tool["name"]
+        owner = self._tool_to_server.get(name)
+        clash = owner is not None and owner != server_name
+        if (server_name, name) in self._ALWAYS_PREFIXED or clash:
+            exposed = f"{server_name}_{name}"
+            if clash:
+                print(f"Note: tool '{name}' exists on both '{owner}' and "
+                      f"'{server_name}'; the {server_name} one is '{exposed}'.")
+            self._upstream_name[exposed] = name
+            tool = {**tool, "name": exposed}
+            name = exposed
+        if name in self._tool_to_server:
+            return
+        self._tool_to_server[name] = server_name
+        self._all_tools.append(tool)
     
     # Maximum number of tool-calling turns before the loop bails.
     # Each turn = one Claude call + zero-or-more tool executions.
@@ -645,31 +710,14 @@ class OSINTMCPClient:
 
     _PLANNER_SYSTEM_PROMPT = """You are an OSINT research assistant with access to specialized tools from multiple sources.
 
-AVAILABLE TOOL CATEGORIES:
+AVAILABLE TOOLS (these are the only tools you can call; each tool's own description says what it does):
 
-1. Username / Social Media (Local Server):
-   - username_search: Find social media accounts across 600+ platforms
-
-2. Domain Intelligence (WhoisXML API):
-   - whois, whois_history, reverse_whois
-   - dns_lookup, dns_history, reverse_dns, reverse_ip, reverse_mx, reverse_ns
-   - subdomains_lookup
-
-3. IP Intelligence (WhoisXML API):
-   - ip_geolocation, ip_netblocks
-
-4. Security & Verification (WhoisXML API):
-   - threat_intelligence, ssl_certificates, email_verification, categorization
-
-5. Network Reconnaissance (Shodan):
-   - host, dns-lookup, reverse-dns, cve-lookup
-
-6. Technology Detection (BuiltWith):
-   - free-api, trends-api
+{tool_list}
 
 RULES FOR TOOL USE:
-- For technology stack lookups, ALWAYS use 'free-api', NEVER 'domain-api' or 'domain-lookup'.
-- You may call multiple tools across multiple turns to answer complex queries.
+- For technology stack lookups, ALWAYS use 'free-api'.
+- For subdomains of a domain, use 'shodan_domain_info'. It answers for the registered domain (e.g. vt.edu when asked about cs.vt.edu) and lists names without that ending, so for cs.vt.edu keep only names that are "cs" or end in ".cs". If it says there are more results, say the list covers only the first page.
+{live_tools_rule}- You may call multiple tools across multiple turns to answer complex queries.
 - If the user's question needs several pieces of information, call tools one at a time, read the results, then decide what to call next.
 - When you have enough information to fully answer the user's question, stop calling tools and respond with a final text answer.
 
@@ -681,11 +729,53 @@ RULES FOR WHEN NO TOOL FITS:
 RULES FOR THE FINAL ANSWER:
 - Be concise and factual.
 - Only report data actually present in the tool results.
+- For infostealer domain results, describe counts and URL occurrences as reported database aggregates. Do not infer unique victims, credential validity, account access, or what a URL is used for.
 - Do NOT invent URLs, profile links, counts, dates, or identifiers.
 - Do NOT include "Key Insights" or "Recommended Next Steps" sections.
 - Do NOT give advice, recommendations, or suggested workarounds.
 - Group related findings when presenting multiple tool results.
 """
+
+    _SERVER_LABELS = {
+        "local": "Local server",
+        "whoisxml": "WhoisXML API",
+        "shodan": "Shodan",
+        "builtwith": "BuiltWith",
+    }
+
+    def _planner_system_prompt(self, tools: list[dict]) -> str:
+        """The planner prompt, listing exactly the tools the agent can call now.
+
+        Built from the connected, allowlisted tools so the prompt never names
+        a tool the agent can't run (or uses the wrong name for one).
+        """
+        by_server: dict[str, list[str]] = {}
+        for tool in tools:
+            server = getattr(self, "_tool_to_server", {}).get(tool["name"], "other")
+            by_server.setdefault(server, []).append(tool["name"])
+        if by_server:
+            tool_list = "\n".join(
+                f"- {self._SERVER_LABELS.get(server, server)}: {', '.join(sorted(names))}"
+                for server, names in by_server.items()
+            )
+        else:
+            tool_list = "- (none: no tool servers are connected)"
+        live = sorted(t["name"] for t in tools if t["name"] in LIVE_CONTACT_TOOLS)
+        if live:
+            live_tools_rule = (
+                f"- These tools contact the target or other live sites instead of reading a database: "
+                f"{', '.join(live)}. If the user asks for passive-only work, do not call them.\n"
+            )
+        elif STEALTH:
+            live_tools_rule = (
+                "- Tools that contact the target live are switched off here. If a question "
+                "needs one, say you can't do that part.\n"
+            )
+        else:
+            live_tools_rule = ""
+        return (self._PLANNER_SYSTEM_PROMPT
+                .replace("{tool_list}", tool_list)
+                .replace("{live_tools_rule}", live_tools_rule))
 
     async def process_query(
         self,
@@ -757,10 +847,10 @@ RULES FOR THE FINAL ANSWER:
                     )
 
                     response = await asyncio.to_thread(
-                        self.anthropic.messages.create,
-                        model="claude-sonnet-4-5-20250929",
+                        self.llm.create,
+                        tier="main",
                         max_tokens=2048,
-                        system=self._PLANNER_SYSTEM_PROMPT,
+                        system=self._planner_system_prompt(tools),
                         tools=tools,
                         messages=messages,
                     )
@@ -920,8 +1010,8 @@ RULES FOR THE FINAL ANSWER:
                     })
                     try:
                         summary_response = await asyncio.to_thread(
-                            self.anthropic.messages.create,
-                            model="claude-sonnet-4-5-20250929",
+                            self.llm.create,
+                            tier="main",
                             max_tokens=2048,
                             system=(
                                 "You are an OSINT research assistant. The tool-calling "
@@ -1140,7 +1230,7 @@ def get_default_servers(custom_local_path: str = None, only: list[str] = None) -
         name="local",
         server_type="stdio",
         script_path=server_path,
-        description="Local OSINT tools (username search, person search)",
+        description="Local OSINT tools (username search, person search, breach data lookups)",
         enabled=True
     ))
     

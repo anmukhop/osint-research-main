@@ -22,6 +22,12 @@ from researcher.models import (
 from researcher import views
 from researcher.services import browsing_summary
 from researcher.services.mcp_client import OSINTMCPClient, QueryResult
+from researcher.services.llm_provider import AnthropicProvider, OpenAICompatProvider, get_provider
+from researcher.services.tool_registry import (
+    TOOLS,
+    get_confirmation_message,
+    get_confirmation_placeholders,
+)
 
 
 class TeamContextSimulationTests(TestCase):
@@ -197,7 +203,7 @@ class TeamContextSimulationTests(TestCase):
         ]
 
         with (
-            patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}),
+            patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key", "LLM_PROVIDER": "anthropic"}),
             patch.object(browsing_summary, "_call_summary", return_value=summary) as call_summary,
             patch.object(browsing_summary, "_call_suggestions", return_value=suggestions) as call_suggestions,
         ):
@@ -451,7 +457,7 @@ class MCPClientConcurrencyTests(TestCase):
                     SimpleNamespace(type="text", text=f"done: {query}")
                 ])
 
-        client.anthropic = SimpleNamespace(messages=FakeMessages())
+        client.llm = AnthropicProvider(client=SimpleNamespace(messages=FakeMessages()))
 
         events = {"a": [], "b": []}
 
@@ -505,7 +511,7 @@ class MCPClientConcurrencyTests(TestCase):
                     )
                 ])
 
-        client.anthropic = SimpleNamespace(messages=FakeMessages())
+        client.llm = AnthropicProvider(client=SimpleNamespace(messages=FakeMessages()))
 
         async def fake_call_tool(tool_name, arguments):
             raise RuntimeError("lookup unavailable")
@@ -549,7 +555,7 @@ class MCPClientConcurrencyTests(TestCase):
                     SimpleNamespace(type="text", text="DNS records found.")
                 ])
 
-        client.anthropic = SimpleNamespace(messages=FakeMessages())
+        client.llm = AnthropicProvider(client=SimpleNamespace(messages=FakeMessages()))
 
         async def fake_call_tool(tool_name, arguments):
             calls["tool"] += 1
@@ -601,7 +607,7 @@ class MCPClientConcurrencyTests(TestCase):
                     )
                 ])
 
-        client.anthropic = SimpleNamespace(messages=FakeMessages())
+        client.llm = AnthropicProvider(client=SimpleNamespace(messages=FakeMessages()))
 
         async def fake_call_tool(tool_name, arguments):
             calls["tool"] += 1
@@ -698,7 +704,8 @@ class QueryApprovalAndCancellationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Run a new query")
-        self.assertContains(response, "https://osint-research-production.up.railway.app/")
+        self.assertContains(response, '<a href="/" class="primary" id="newWorkspaceQuery">')
+        self.assertNotContains(response, "railway.app")
         self.assertContains(response, "detailPane")
         self.assertContains(response, "workspace-query-data")
         self.assertContains(response, "Team Context")
@@ -723,7 +730,7 @@ class QueryApprovalAndCancellationTests(TestCase):
             def __init__(self, **kwargs):
                 self.messages = FakeMessages()
 
-        with patch("anthropic.Anthropic", FakeAnthropic):
+        with patch("researcher.views.get_provider", lambda: AnthropicProvider(client=FakeAnthropic())):
             response = self.client.post(
                 reverse("parse_query"),
                 data=json.dumps({"query": "Investigate vt.edu ownership and DNS"}),
@@ -737,6 +744,34 @@ class QueryApprovalAndCancellationTests(TestCase):
         self.assertEqual([item["tool"] for item in payload["tool_plan"]], ["whois", "dns_lookup"])
         self.assertIn("whois", payload["confirmation_message"])
         self.assertIn("dns_lookup", payload["confirmation_message"])
+
+    def test_parse_query_without_tool_hands_question_to_agent(self):
+        """A judgment question ("which hosts are most sensitive?") needs no
+        tool. The parser must not report that as an error: it returns
+        success with no_tool so the page sends it straight to the agent,
+        which answers in full and saves it to the thread."""
+        class FakeMessages:
+            def create(self, **kwargs):
+                return SimpleNamespace(content=[
+                    SimpleNamespace(type="text", text="No tool calls needed — ranking from prior results."),
+                ])
+
+        class FakeAnthropic:
+            def __init__(self, **kwargs):
+                self.messages = FakeMessages()
+
+        with patch("researcher.views.get_provider", lambda: AnthropicProvider(client=FakeAnthropic())):
+            response = self.client.post(
+                reverse("parse_query"),
+                data=json.dumps({"query": "Which of these hosts are the most sensitive?"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload["no_tool"])
+        self.assertNotIn("error", payload)
 
     def test_disconnected_in_flight_query_stays_pending_for_background_worker(self):
         session = Session.objects.create()
@@ -754,3 +789,622 @@ class QueryApprovalAndCancellationTests(TestCase):
         self.assertIsNone(query.error)
         self.assertIsNone(query.duration_ms)
         self.assertEqual(persisted, [])
+
+
+class OpenAICompatProviderTests(TestCase):
+    """The VT ARC / OpenAI-compatible backend, exercised against a fake HTTP server."""
+
+    def _provider(self, handler):
+        import httpx
+        return OpenAICompatProvider(
+            base_url="https://llm.example/api/v1",
+            api_key="test-key",
+            model="main-model",
+            fast_model="fast-model",
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+
+    def test_get_provider_selects_backend_from_env(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "anthropic"}):
+            self.assertIsInstance(get_provider(), AnthropicProvider)
+        with patch.dict("os.environ", {"LLM_PROVIDER": "openai_compat"}):
+            self.assertIsInstance(get_provider(), OpenAICompatProvider)
+
+    def test_tool_round_trip_translates_both_directions(self):
+        sent = []
+
+        def handler(request):
+            body = json.loads(request.content)
+            sent.append(body)
+            if len(sent) == 1:
+                return httpx.Response(200, json={"choices": [{"message": {
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "dns_lookup", "arguments": "{\"domain\": \"vt.edu\"}"},
+                    }],
+                }}]})
+            return httpx.Response(200, json={"choices": [{"message": {"content": "DNS records found."}}]})
+
+        import httpx
+        client = OSINTMCPClient.__new__(OSINTMCPClient)
+        client._connected = True
+        client.progress_callback = None
+        client.MAX_AGENT_TURNS = 3
+        client._whoisxml_backup_attempted = True
+        client.get_tools_for_claude = lambda: [{
+            "name": "dns_lookup",
+            "description": "DNS records",
+            "input_schema": {"type": "object", "properties": {"domain": {"type": "string"}}},
+        }]
+        client.get_server_for_tool = lambda tool_name: "whoisxml"
+        client.llm = self._provider(handler)
+
+        async def fake_call_tool(tool_name, arguments):
+            return SimpleNamespace(
+                isError=False,
+                content=[SimpleNamespace(text=json.dumps({"records": ["A 1.2.3.4"]}))],
+            )
+
+        client.call_tool = fake_call_tool
+
+        result = asyncio.run(client.process_query("DNS for vt.edu"))
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.formatted_response, "DNS records found.")
+        self.assertEqual(result.tool_calls_made[0]["args"], {"domain": "vt.edu"})
+
+        first = sent[0]
+        self.assertEqual(first["model"], "main-model")
+        self.assertEqual(first["messages"][0]["role"], "system")
+        self.assertEqual(first["tools"][0]["function"]["name"], "dns_lookup")
+        self.assertEqual(first["tools"][0]["function"]["parameters"]["properties"]["domain"]["type"], "string")
+
+        second = sent[1]["messages"]
+        self.assertEqual(second[-2]["role"], "assistant")
+        self.assertEqual(second[-2]["tool_calls"][0]["id"], "call_1")
+        self.assertEqual(second[-1]["role"], "tool")
+        self.assertEqual(second[-1]["tool_call_id"], "call_1")
+        self.assertIn("1.2.3.4", second[-1]["content"])
+
+    def test_fast_tier_uses_fast_model_and_omits_tools(self):
+        import httpx
+        sent = []
+
+        def handler(request):
+            sent.append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": {"content": "[\"a\"]"}}]})
+
+        resp = self._provider(handler).create(
+            tier="fast", max_tokens=50, messages=[{"role": "user", "content": "hi"}],
+        )
+        self.assertEqual(resp.content[0].text, '["a"]')
+        self.assertEqual(sent[0]["model"], "fast-model")
+        self.assertNotIn("tools", sent[0])
+
+    def test_bad_tool_arguments_become_empty_dict(self):
+        resp = OpenAICompatProvider.convert_response({"choices": [{"message": {
+            "tool_calls": [{"function": {"name": "whois", "arguments": "{not json"}}],
+        }}]})
+        self.assertEqual(resp.content[0].type, "tool_use")
+        self.assertEqual(resp.content[0].input, {})
+        self.assertTrue(resp.content[0].id)
+
+    def test_http_error_raises_with_status(self):
+        import httpx
+        provider = self._provider(lambda request: httpx.Response(401, json={"detail": "401 Unauthorized"}))
+        with self.assertRaisesRegex(RuntimeError, "401"):
+            provider.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+
+    def test_reasoning_headroom_is_added_to_max_tokens(self):
+        import httpx
+        sent = []
+
+        def handler(request):
+            sent.append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+        provider = self._provider(handler)
+        provider.reasoning_headroom = 1000
+        provider.create(messages=[{"role": "user", "content": "hi"}], max_tokens=400)
+        self.assertEqual(sent[0]["max_tokens"], 1400)
+
+    def test_empty_reply_raises_instead_of_returning_nothing(self):
+        # DeepSeek spent the whole budget on hidden reasoning.
+        with self.assertRaisesRegex(RuntimeError, "finish_reason=length"):
+            OpenAICompatProvider.convert_response({"choices": [{
+                "message": {"content": "", "reasoning": "thinking..."},
+                "finish_reason": "length",
+            }]})
+
+    def test_vpn_403_gives_clear_message(self):
+        import httpx
+        provider = self._provider(lambda request: httpx.Response(
+            403, text="API access is restricted to the VT Campus VPN. Please connect to the VPN and retry.",
+        ))
+        with self.assertRaisesRegex(RuntimeError, "Connect to the VT Campus VPN"):
+            provider.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
+
+
+class AgentToolListTests(TestCase):
+    """Name clashes keep both tools, and the planner prompt lists only callable tools."""
+
+    def _client(self):
+        client = OSINTMCPClient.__new__(OSINTMCPClient)
+        client._tool_to_server = {}
+        client._upstream_name = {}
+        client._all_tools = []
+        return client
+
+    def _tool(self, name, server):
+        return {"name": name, "description": f"{server} {name}", "input_schema": {}, "server": server}
+
+    def _register_like_connect(self, client):
+        for server, names in [
+            ("local", ["username_search"]),
+            ("whoisxml", ["whois", "dns_lookup", "domain_info", "subdomain_lookup"]),
+            ("shodan", ["ip_lookup", "dns_lookup", "domain_info"]),
+        ]:
+            for name in names:
+                client._register_tool(self._tool(name, server), server)
+
+    def test_shodan_clashing_tools_are_prefixed_not_dropped(self):
+        client = self._client()
+        self._register_like_connect(client)
+        self.assertEqual(client._tool_to_server["domain_info"], "whoisxml")
+        self.assertEqual(client._tool_to_server["dns_lookup"], "whoisxml")
+        self.assertEqual(client._tool_to_server["shodan_domain_info"], "shodan")
+        self.assertEqual(client._tool_to_server["shodan_dns_lookup"], "shodan")
+        self.assertEqual(client._tool_to_server["ip_lookup"], "shodan")
+        names = [t["name"] for t in client._all_tools]
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_shodan_names_do_not_depend_on_connection_order(self):
+        # e.g. after the WhoisXML backup-key reconnect, WhoisXML registers last.
+        client = self._client()
+        for name in ["dns_lookup", "domain_info"]:
+            client._register_tool(self._tool(name, "shodan"), "shodan")
+        for name in ["dns_lookup", "domain_info"]:
+            client._register_tool(self._tool(name, "whoisxml"), "whoisxml")
+        self.assertEqual(client._tool_to_server["domain_info"], "whoisxml")
+        self.assertEqual(client._tool_to_server["shodan_domain_info"], "shodan")
+
+    def test_other_clashes_keep_the_second_tool_under_a_prefix(self):
+        client = self._client()
+        client._register_tool(self._tool("lookup", "whoisxml"), "whoisxml")
+        client._register_tool(self._tool("lookup", "builtwith"), "builtwith")
+        self.assertEqual(client._tool_to_server["builtwith_lookup"], "builtwith")
+        self.assertEqual(client._upstream_name["builtwith_lookup"], "lookup")
+
+    def test_prefixed_tool_is_called_by_its_real_name_on_its_server(self):
+        client = self._client()
+        self._register_like_connect(client)
+        seen = {}
+
+        class FakeConnection:
+            def __init__(self, server):
+                self.server = server
+
+            async def call_tool(self, name, arguments):
+                seen["call"] = (self.server, name, arguments)
+                return "ok"
+
+        client._connections = {s: FakeConnection(s) for s in ["local", "whoisxml", "shodan"]}
+        asyncio.run(client.call_tool("shodan_domain_info", {"domain": "vt.edu"}))
+        self.assertEqual(seen["call"], ("shodan", "domain_info", {"domain": "vt.edu"}))
+        asyncio.run(client.call_tool("whois", {"domainName": "vt.edu"}))
+        self.assertEqual(seen["call"], ("whoisxml", "whois", {"domainName": "vt.edu"}))
+
+    def test_planner_prompt_lists_exactly_the_callable_tools(self):
+        import re
+        from researcher.services.mcp_client import AGENT_ALLOWED_TOOLS
+        client = self._client()
+        self._register_like_connect(client)
+        tools = [
+            {"name": t["name"], "description": t["description"], "input_schema": {}}
+            for t in client._all_tools if t["name"] in AGENT_ALLOWED_TOOLS
+        ]
+        prompt = client._planner_system_prompt(tools)
+        section = prompt.split("AVAILABLE TOOLS")[1].split("RULES FOR TOOL USE")[0]
+        listed = {
+            name.strip()
+            for line in section.splitlines() if line.startswith("- ")
+            for name in line.split(": ", 1)[1].split(",")
+        }
+        self.assertEqual(listed, {t["name"] for t in tools})
+        self.assertIn("shodan_domain_info", listed)
+        self.assertNotIn("subdomain_lookup", prompt)  # hidden (0 WhoisXML credits)
+        self.assertNotIn("{tool_list}", prompt)
+        self.assertIn("Do not infer unique victims, credential validity, account access", prompt)
+        # Every tool named in the rules is one the agent can call.
+        rules = prompt.split("RULES FOR TOOL USE")[1].split("RULES FOR WHEN")[0]
+        for named in re.findall(r"'([a-z_-]+)'", rules):
+            self.assertIn(named, AGENT_ALLOWED_TOOLS)
+
+    def test_planner_prompt_with_no_tools_says_so(self):
+        prompt = self._client()._planner_system_prompt([])
+        self.assertIn("no tool servers are connected", prompt)
+
+
+class AgentToolReviewTests(TestCase):
+    """The reviewed allowlist (docs/agent-tool-list.md), stealth mode, live-tool labels."""
+
+    def _reload(self, stealth):
+        import importlib
+        import os
+        from unittest import mock
+        import researcher.services.mcp_client as mod
+        env = {"OSINT_STEALTH_MODE": "true"} if stealth else {}
+        with mock.patch.dict(os.environ, env):
+            if not stealth:
+                os.environ.pop("OSINT_STEALTH_MODE", None)
+            return importlib.reload(mod)
+
+    def tearDown(self):
+        self._reload(stealth=False)
+
+    def _prompt(self, mod, names):
+        client = mod.OSINTMCPClient.__new__(mod.OSINTMCPClient)
+        client._tool_to_server = {}
+        tools = [{"name": n, "description": "", "input_schema": {}}
+                 for n in names if n in mod.AGENT_ALLOWED_TOOLS]
+        return client._planner_system_prompt(tools)
+
+    def test_reviewed_tools_are_allowed_by_default(self):
+        mod = self._reload(stealth=False)
+        for name in ["ssl_certificates", "email_verification", "categorization",
+                     "domain_reputation", "disposable_email_check", "trends-api",
+                     "username_search", "free-api"]:
+            self.assertIn(name, mod.AGENT_ALLOWED_TOOLS)
+
+    def test_hidden_and_banned_tools_stay_off(self):
+        mod = self._reload(stealth=False)
+        for name in ["subdomain_lookup", "reverse_whois", "whois_history", "reverse_ip",
+                     "website_screenshot", "domain-api", "bulk_whois",
+                     "bulk_email_verification", "payment-purchase",
+                     "x402-credit-purchase", "mpp-purchase"]:
+            self.assertNotIn(name, mod.AGENT_ALLOWED_TOOLS)
+
+    def test_stealth_mode_removes_live_contact_tools(self):
+        mod = self._reload(stealth=True)
+        for name in mod.LIVE_CONTACT_TOOLS:
+            self.assertNotIn(name, mod.AGENT_ALLOWED_TOOLS)
+        self.assertIn("username_search", mod.LIVE_CONTACT_TOOLS)
+        self.assertIn("whois", mod.AGENT_ALLOWED_TOOLS)
+        prompt = self._prompt(mod, ["whois", "email_verification"])
+        self.assertNotIn("email_verification", prompt)
+        self.assertIn("switched off", prompt)
+
+    def test_prompt_labels_live_tools_only_when_present(self):
+        mod = self._reload(stealth=False)
+        prompt = self._prompt(mod, ["whois", "ssl_certificates", "username_search"])
+        rule = [l for l in prompt.splitlines() if "passive-only" in l]
+        self.assertEqual(len(rule), 1)
+        self.assertIn("ssl_certificates, username_search", rule[0])
+        self.assertNotIn("whois", rule[0])
+        self.assertNotIn("switched off", prompt)
+        self.assertNotIn("{live_tools_rule}", prompt)
+        self.assertNotIn("passive-only", self._prompt(mod, ["whois"]))
+
+    def test_domain_reputation_is_forced_to_fast_mode(self):
+        mod = self._reload(stealth=False)
+        client = mod.OSINTMCPClient.__new__(mod.OSINTMCPClient)
+        client._tool_to_server = {"domain_reputation": "whoisxml"}
+        client._upstream_name = {}
+        seen = {}
+
+        class FakeConnection:
+            async def call_tool(self, name, arguments):
+                seen["args"] = arguments
+
+        client._connections = {"whoisxml": FakeConnection()}
+        asyncio.run(client.call_tool("domain_reputation", {"domain_name": "x.org", "mode": "full"}))
+        self.assertEqual(seen["args"], {"domain_name": "x.org", "mode": "fast"})
+
+
+class ConfirmationMessageTests(TestCase):
+    """The "I'll ..." sentence shown in the Confirm Search box."""
+
+    def test_every_tool_has_a_confirmation_phrase(self):
+        missing = [name for name, tool in TOOLS.items() if not tool.get("confirmation")]
+        self.assertEqual(missing, [])
+
+    def test_every_placeholder_matches_a_tool_argument(self):
+        for name, tool in TOOLS.items():
+            with self.subTest(tool=name):
+                placeholders = get_confirmation_placeholders(tool["confirmation"])
+                self.assertTrue(placeholders, "phrase should mention what is being searched")
+                for placeholder in placeholders:
+                    self.assertIn(placeholder, tool["arguments"])
+
+    def test_every_phrase_renders_with_its_required_arguments(self):
+        for name, tool in TOOLS.items():
+            with self.subTest(tool=name):
+                params = {
+                    arg: "example"
+                    for arg, info in tool["arguments"].items()
+                    if info.get("required")
+                }
+                msg, _, _ = get_confirmation_message(name, params)
+                self.assertEqual(msg, f"I'll {tool['confirmation'].format(**{a: repr('example') for a in params})}.")
+
+    def test_dns_lookup_reads_naturally(self):
+        msg, _, server = get_confirmation_message("dns_lookup", {"domainName": "google.com", "type": "_all"})
+        self.assertEqual(msg, "I'll look up the DNS records for 'google.com'.")
+        self.assertEqual(server, "whoisxml")
+
+    def test_username_search_reads_naturally(self):
+        msg, _, _ = get_confirmation_message("username_search", {"username": "test_user"})
+        self.assertEqual(msg, "I'll search 600+ sites for profiles matching the username 'test_user'.")
+
+    def test_missing_argument_falls_back_to_generic_message(self):
+        msg, _, _ = get_confirmation_message("dns_lookup", {"type": "MX"})
+        self.assertEqual(msg, "I'll run the dns_lookup tool with the provided parameters.")
+
+    def test_phrase_with_unknown_placeholder_falls_back_instead_of_erroring(self):
+        with patch.dict(TOOLS["dns_lookup"], {"confirmation": "look up {notAnArgument}"}):
+            msg, _, _ = get_confirmation_message("dns_lookup", {"domainName": "google.com"})
+        self.assertEqual(msg, "I'll run the dns_lookup tool for 'google.com'.")
+
+    def test_unknown_tool_falls_back_to_generic_message(self):
+        msg, est_time, server = get_confirmation_message("not_a_tool", {"x": "y"})
+        self.assertEqual(msg, "I'll run the not_a_tool tool with the provided parameters.")
+        self.assertEqual((est_time, server), ("Unknown", "unknown"))
+
+
+@override_settings(ALLOWED_HOSTS=["testserver"])
+class RequireLoginTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="searcher", password="pw-12345-test")
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_anonymous_visitor_is_sent_to_login(self):
+        response = self.client.get(reverse("index"))
+        self.assertRedirects(response, f"{reverse('login')}?next=/", fetch_redirect_response=False)
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_anonymous_search_is_refused_without_running(self):
+        with patch.object(views, "Query") as query_model:
+            response = self.client.get(reverse("search_stream"), {"query": "whois example.com"})
+            body = b"".join(response.streaming_content)
+        self.assertEqual(response.status_code, 401)
+        self.assertIn(b"Please log in to search.", body)
+        query_model.objects.create.assert_not_called()
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_anonymous_parse_is_refused(self):
+        response = self.client.post(reverse("parse_query"), data=json.dumps({"query": "whois example.com"}),
+                                    content_type="application/json")
+        self.assertEqual(response.status_code, 401)
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_login_page_hides_continue_without_login_link(self):
+        response = self.client.get(reverse("login"))
+        self.assertNotContains(response, "Continue without logging in")
+
+    @override_settings(REQUIRE_LOGIN=True)
+    def test_logged_in_user_can_open_search_page(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("index")).status_code, 200)
+
+    @override_settings(REQUIRE_LOGIN=False)
+    def test_default_allows_anonymous_use(self):
+        self.assertEqual(self.client.get(reverse("index")).status_code, 200)
+        self.assertContains(self.client.get(reverse("login")), "Continue without logging in")
+
+
+class EmailBreachCheckTests(TestCase):
+    """XposedOrNot email_breach_check tool. The API is faked; no network calls."""
+
+    def _breach(self, name, year, added, records=100, leaked="Email addresses;Passwords"):
+        return {
+            "breach": name, "details": "long text", "domain": f"{name.lower()}.com",
+            "industry": "Tech", "logo": "https://x/logo.png", "password_risk": "plaintext",
+            "verified": "Yes", "xposed_data": leaked, "xposed_date": year,
+            "xposed_records": records, "added": added,
+        }
+
+    def _fake_response(self, status=200, payload=None):
+        response = SimpleNamespace(status_code=status)
+        response.json = lambda: payload
+        return response
+
+    def _run(self, email="test@example.com", status=200, payload=None, **kwargs):
+        from researcher.services.agents.xposedornot import XposedOrNotAgent
+        with patch("researcher.services.agents.xposedornot.requests.get",
+                   return_value=self._fake_response(status, payload)) as get:
+            result = XposedOrNotAgent().run(email=email, **kwargs)
+        return result, get
+
+    def test_normal_result_is_tidy_and_newest_first(self):
+        payload = {
+            "ExposedBreaches": {"breaches_details": [
+                self._breach("Old", "2012", "2019-01-01T00:00:00+00:00"),
+                self._breach("Newest", "2026", "2026-11-05T00:00:00+00:00", records=445899,
+                             leaked="Email addresses;Names;Phone numbers"),
+                self._breach("Middle", "2020", "2021-01-01T00:00:00+00:00"),
+            ]},
+            "BreachMetrics": {"risk": [{"risk_label": "Critical", "risk_score": 100}]},
+            "ExposedPastes": None,
+        }
+        result, get = self._run(email="  Test@Example.com ", payload=payload, max_breaches=2)
+
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["email"], "test@example.com")
+        self.assertEqual(result["breach_count"], 3)
+        self.assertEqual((result["risk_label"], result["risk_score"]), ("Critical", 100))
+        self.assertEqual([b["name"] for b in result["breaches"]], ["Newest", "Middle"])
+        self.assertEqual(result["breaches"][0], {
+            "name": "Newest", "domain": "newest.com", "year": "2026", "records": 445899,
+            "leaked": ["Email addresses", "Names", "Phone numbers"],
+        })
+        self.assertEqual(get.call_args.kwargs["params"], {"email": "test@example.com"})
+        self.assertIn("User-Agent", get.call_args.kwargs["headers"])
+
+    def test_breach_without_a_domain_gives_none(self):
+        breach = self._breach("NoSite", "2024", "2024-01-01T00:00:00+00:00")
+        breach["domain"] = ""
+        payload = {"ExposedBreaches": {"breaches_details": [breach]}, "BreachMetrics": None}
+        result, _ = self._run(payload=payload)
+        self.assertIsNone(result["breaches"][0]["domain"])
+
+    def test_no_breaches_is_a_clean_empty_result(self):
+        payload = {"BreachMetrics": None, "ExposedBreaches": None, "ExposedPastes": None}
+        result, _ = self._run(payload=payload)
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["breach_count"], 0)
+        self.assertEqual(result["breaches"], [])
+        self.assertIsNone(result["risk_label"])
+
+    def test_rate_limit_and_other_error_statuses_return_an_error(self):
+        result, _ = self._run(status=429, payload={})
+        self.assertIn("429", result["error"])
+        result, _ = self._run(status=500, payload={})
+        self.assertIn("500", result["error"])
+        self.assertEqual(result["breaches"], [])
+
+    def test_timeout_returns_an_error_instead_of_raising(self):
+        import requests
+        from researcher.services.agents.xposedornot import XposedOrNotAgent
+        with patch("researcher.services.agents.xposedornot.requests.get",
+                   side_effect=requests.Timeout()):
+            result = XposedOrNotAgent().run(email="test@example.com")
+        self.assertIn("did not respond", result["error"])
+
+    def test_bad_input_is_rejected_without_calling_the_api(self):
+        for bad in ["", "   ", "not-an-email", "a@b", "two@@example.com", None, 42]:
+            with self.subTest(email=bad):
+                result, get = self._run(email=bad, payload={})
+                self.assertIsNotNone(result["error"])
+                get.assert_not_called()
+
+    def test_email_is_not_written_to_the_logs(self):
+        import io
+        from contextlib import redirect_stderr
+        payload = {"ExposedBreaches": None, "BreachMetrics": None}
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            self._run(email="secret-person@example.com", payload=payload)
+        self.assertNotIn("secret-person", captured.getvalue())
+
+    def test_tool_is_registered_visible_to_agent_and_confirms_naturally(self):
+        from researcher.services.mcp_client import AGENT_ALLOWED_TOOLS
+        from researcher.services.tool_registry import get_server_for_tool
+        self.assertIn("email_breach_check", AGENT_ALLOWED_TOOLS)
+        self.assertEqual(get_server_for_tool("email_breach_check"), "local")
+        msg, _, _ = get_confirmation_message("email_breach_check", {"email": "test@example.com"})
+        self.assertEqual(msg, "I'll check known data breaches for the email address 'test@example.com'.")
+
+
+class InfostealerDomainSearchTests(TestCase):
+    """Hudson Rock's company-domain API is faked; no network calls."""
+
+    def _fake_response(self, status=200, payload=None):
+        response = SimpleNamespace(status_code=status)
+        response.json = lambda: payload
+        return response
+
+    def _run(self, domain="vt.edu", status=200, payload=None, **kwargs):
+        from researcher.services.agents.infostealer import InfostealerDomainSearchAgent
+        with patch("researcher.services.agents.infostealer.requests.get",
+                   return_value=self._fake_response(status, payload)) as get:
+            result = InfostealerDomainSearchAgent().run(domain=domain, **kwargs)
+        return result, get
+
+    def test_normal_result_is_tidy_and_returns_top_login_urls(self):
+        payload = {
+            "total": 4446,
+            "employees": 273,
+            "users": 3148,
+            "third_parties": 1025,
+            "totalUrls": 1017,
+            "data": {
+                "employees_urls": [
+                    {"occurrence": 12, "type": "Employee", "url": "https://hr.vt.edu/login"},
+                    {"occurrence": 83, "type": "Employee", "url": "https://allgate.w2k.vt.edu/adfs/ls"},
+                ],
+                "clients_urls": [
+                    {"occurrence": 1718, "type": "User", "url": "https://login.vt.edu/profile/SAML2/Redirect/SSO"},
+                    {"occurrence": 9, "type": "User", "url": "https://portal.vt.edu/login"},
+                ],
+                "all_urls": [{"occurrence": 9999, "url": "https://ignored.vt.edu"}],
+            },
+            "logo": "ignored",
+            "stats": {"ignored": True},
+        }
+        result, get = self._run(
+            domain="https://www.VT.edu/about",
+            payload=payload,
+            limit=1,
+        )
+
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["domain"], "vt.edu")
+        self.assertEqual(
+            {key: result[key] for key in ("total", "employees", "users", "third_parties", "total_urls")},
+            {"total": 4446, "employees": 273, "users": 3148, "third_parties": 1025, "total_urls": 1017},
+        )
+        self.assertEqual(result["employee_urls"], [
+            {"url": "https://allgate.w2k.vt.edu/adfs/ls", "occurrence": 83},
+        ])
+        self.assertEqual(result["user_urls"], [
+            {"url": "https://login.vt.edu/profile/SAML2/Redirect/SSO", "occurrence": 1718},
+        ])
+        self.assertNotIn("all_urls", result)
+        self.assertNotIn("logo", result)
+        self.assertEqual(get.call_args.args[0], "https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-domain")
+        self.assertEqual(get.call_args.kwargs["params"], {"domain": "vt.edu"})
+        self.assertEqual(get.call_args.kwargs["headers"]["User-Agent"], "osint-research-platform")
+
+    def test_unknown_domain_returns_zero_counts_and_empty_urls(self):
+        payload = {
+            "total": 0, "employees": 0, "users": 0, "third_parties": 0, "totalUrls": 0,
+            "data": {"employees_urls": [], "clients_urls": []},
+        }
+        result, _ = self._run(domain="unknown.example", payload=payload)
+
+        self.assertIsNone(result["error"])
+        self.assertEqual(
+            {key: result[key] for key in ("total", "employees", "users", "third_parties", "total_urls")},
+            {"total": 0, "employees": 0, "users": 0, "third_parties": 0, "total_urls": 0},
+        )
+        self.assertEqual(result["employee_urls"], [])
+        self.assertEqual(result["user_urls"], [])
+
+    def test_non_success_statuses_return_clear_errors(self):
+        for status in (429, 500):
+            with self.subTest(status=status):
+                result, _ = self._run(status=status)
+                self.assertIn(str(status), result["error"])
+                self.assertEqual(result["employee_urls"], [])
+                self.assertEqual(result["user_urls"], [])
+
+    def test_bad_domain_is_rejected_without_calling_the_api(self):
+        for domain in ("", "https://", "not a domain", "localhost", "127.0.0.1", None, 42):
+            with self.subTest(domain=domain):
+                result, get = self._run(domain=domain)
+                self.assertIsNotNone(result["error"])
+                get.assert_not_called()
+
+    def test_timeout_returns_clear_error(self):
+        import requests
+        from researcher.services.agents.infostealer import InfostealerDomainSearchAgent
+        with patch("researcher.services.agents.infostealer.requests.get",
+                   side_effect=requests.Timeout()):
+            result = InfostealerDomainSearchAgent().run(domain="vt.edu")
+        self.assertIn("did not respond", result["error"])
+
+    def test_tool_is_registered_visible_and_confirms_naturally(self):
+        from researcher.services.mcp_client import AGENT_ALLOWED_TOOLS
+        from researcher.services.tool_registry import get_server_for_tool
+        self.assertIn("infostealer_domain_search", AGENT_ALLOWED_TOOLS)
+        self.assertEqual(get_server_for_tool("infostealer_domain_search"), "local")
+        msg, _, _ = get_confirmation_message(
+            "infostealer_domain_search",
+            {"domain": "vt.edu", "limit": 5},
+        )
+        self.assertEqual(
+            msg,
+            "I'll check Hudson Rock's infostealer exposure for users of 'vt.edu'.",
+        )
