@@ -704,7 +704,8 @@ class QueryApprovalAndCancellationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Run a new query")
-        self.assertContains(response, "https://osint-research-production.up.railway.app/")
+        self.assertContains(response, '<a href="/" class="primary" id="newWorkspaceQuery">')
+        self.assertNotContains(response, "railway.app")
         self.assertContains(response, "detailPane")
         self.assertContains(response, "workspace-query-data")
         self.assertContains(response, "Team Context")
@@ -743,6 +744,34 @@ class QueryApprovalAndCancellationTests(TestCase):
         self.assertEqual([item["tool"] for item in payload["tool_plan"]], ["whois", "dns_lookup"])
         self.assertIn("whois", payload["confirmation_message"])
         self.assertIn("dns_lookup", payload["confirmation_message"])
+
+    def test_parse_query_without_tool_hands_question_to_agent(self):
+        """A judgment question ("which hosts are most sensitive?") needs no
+        tool. The parser must not report that as an error: it returns
+        success with no_tool so the page sends it straight to the agent,
+        which answers in full and saves it to the thread."""
+        class FakeMessages:
+            def create(self, **kwargs):
+                return SimpleNamespace(content=[
+                    SimpleNamespace(type="text", text="No tool calls needed — ranking from prior results."),
+                ])
+
+        class FakeAnthropic:
+            def __init__(self, **kwargs):
+                self.messages = FakeMessages()
+
+        with patch("researcher.views.get_provider", lambda: AnthropicProvider(client=FakeAnthropic())):
+            response = self.client.post(
+                reverse("parse_query"),
+                data=json.dumps({"query": "Which of these hosts are the most sensitive?"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertTrue(payload["no_tool"])
+        self.assertNotIn("error", payload)
 
     def test_disconnected_in_flight_query_stays_pending_for_background_worker(self):
         session = Session.objects.create()
@@ -998,6 +1027,82 @@ class AgentToolListTests(TestCase):
         self.assertIn("no tool servers are connected", prompt)
 
 
+class AgentToolReviewTests(TestCase):
+    """The reviewed allowlist (docs/agent-tool-list.md), stealth mode, live-tool labels."""
+
+    def _reload(self, stealth):
+        import importlib
+        import os
+        from unittest import mock
+        import researcher.services.mcp_client as mod
+        env = {"OSINT_STEALTH_MODE": "true"} if stealth else {}
+        with mock.patch.dict(os.environ, env):
+            if not stealth:
+                os.environ.pop("OSINT_STEALTH_MODE", None)
+            return importlib.reload(mod)
+
+    def tearDown(self):
+        self._reload(stealth=False)
+
+    def _prompt(self, mod, names):
+        client = mod.OSINTMCPClient.__new__(mod.OSINTMCPClient)
+        client._tool_to_server = {}
+        tools = [{"name": n, "description": "", "input_schema": {}}
+                 for n in names if n in mod.AGENT_ALLOWED_TOOLS]
+        return client._planner_system_prompt(tools)
+
+    def test_reviewed_tools_are_allowed_by_default(self):
+        mod = self._reload(stealth=False)
+        for name in ["ssl_certificates", "email_verification", "categorization",
+                     "domain_reputation", "disposable_email_check", "trends-api",
+                     "username_search", "free-api"]:
+            self.assertIn(name, mod.AGENT_ALLOWED_TOOLS)
+
+    def test_hidden_and_banned_tools_stay_off(self):
+        mod = self._reload(stealth=False)
+        for name in ["subdomain_lookup", "reverse_whois", "whois_history", "reverse_ip",
+                     "website_screenshot", "domain-api", "bulk_whois",
+                     "bulk_email_verification", "payment-purchase",
+                     "x402-credit-purchase", "mpp-purchase"]:
+            self.assertNotIn(name, mod.AGENT_ALLOWED_TOOLS)
+
+    def test_stealth_mode_removes_live_contact_tools(self):
+        mod = self._reload(stealth=True)
+        for name in mod.LIVE_CONTACT_TOOLS:
+            self.assertNotIn(name, mod.AGENT_ALLOWED_TOOLS)
+        self.assertIn("username_search", mod.LIVE_CONTACT_TOOLS)
+        self.assertIn("whois", mod.AGENT_ALLOWED_TOOLS)
+        prompt = self._prompt(mod, ["whois", "email_verification"])
+        self.assertNotIn("email_verification", prompt)
+        self.assertIn("switched off", prompt)
+
+    def test_prompt_labels_live_tools_only_when_present(self):
+        mod = self._reload(stealth=False)
+        prompt = self._prompt(mod, ["whois", "ssl_certificates", "username_search"])
+        rule = [l for l in prompt.splitlines() if "passive-only" in l]
+        self.assertEqual(len(rule), 1)
+        self.assertIn("ssl_certificates, username_search", rule[0])
+        self.assertNotIn("whois", rule[0])
+        self.assertNotIn("switched off", prompt)
+        self.assertNotIn("{live_tools_rule}", prompt)
+        self.assertNotIn("passive-only", self._prompt(mod, ["whois"]))
+
+    def test_domain_reputation_is_forced_to_fast_mode(self):
+        mod = self._reload(stealth=False)
+        client = mod.OSINTMCPClient.__new__(mod.OSINTMCPClient)
+        client._tool_to_server = {"domain_reputation": "whoisxml"}
+        client._upstream_name = {}
+        seen = {}
+
+        class FakeConnection:
+            async def call_tool(self, name, arguments):
+                seen["args"] = arguments
+
+        client._connections = {"whoisxml": FakeConnection()}
+        asyncio.run(client.call_tool("domain_reputation", {"domain_name": "x.org", "mode": "full"}))
+        self.assertEqual(seen["args"], {"domain_name": "x.org", "mode": "fast"})
+
+
 class ConfirmationMessageTests(TestCase):
     """The "I'll ..." sentence shown in the Confirm Search box."""
 
@@ -1131,11 +1236,18 @@ class EmailBreachCheckTests(TestCase):
         self.assertEqual((result["risk_label"], result["risk_score"]), ("Critical", 100))
         self.assertEqual([b["name"] for b in result["breaches"]], ["Newest", "Middle"])
         self.assertEqual(result["breaches"][0], {
-            "name": "Newest", "year": "2026", "records": 445899,
+            "name": "Newest", "domain": "newest.com", "year": "2026", "records": 445899,
             "leaked": ["Email addresses", "Names", "Phone numbers"],
         })
         self.assertEqual(get.call_args.kwargs["params"], {"email": "test@example.com"})
         self.assertIn("User-Agent", get.call_args.kwargs["headers"])
+
+    def test_breach_without_a_domain_gives_none(self):
+        breach = self._breach("NoSite", "2024", "2024-01-01T00:00:00+00:00")
+        breach["domain"] = ""
+        payload = {"ExposedBreaches": {"breaches_details": [breach]}, "BreachMetrics": None}
+        result, _ = self._run(payload=payload)
+        self.assertIsNone(result["breaches"][0]["domain"])
 
     def test_no_breaches_is_a_clean_empty_result(self):
         payload = {"BreachMetrics": None, "ExposedBreaches": None, "ExposedPastes": None}

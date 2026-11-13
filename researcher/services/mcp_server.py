@@ -58,7 +58,8 @@ async def email_breach_check(email: str, max_breaches: int = 10) -> dict:
     """
     Check whether an email address appears in known data breaches (XposedOrNot database).
     Returns the breach count, an overall risk label and score (0-100), and the most
-    recent breaches with name, year, number of records and what data leaked.
+    recent breaches with name, the breached company's domain, year, number of records
+    and what data leaked.
     Passive lookup: it never contacts the address's owner. Use on an organization's
     public addresses (e.g. info@, sales@), not on private individuals.
     """

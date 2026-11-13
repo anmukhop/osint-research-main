@@ -123,6 +123,7 @@ class XposedOrNotAgent:
         leaked = breach.get("xposed_data") or ""
         return {
             "name": breach.get("breach"),
+            "domain": breach.get("domain") or None,
             "year": str(breach.get("xposed_date") or "") or None,
             "records": breach.get("xposed_records"),
             "leaked": [item.strip() for item in leaked.split(";") if item.strip()],

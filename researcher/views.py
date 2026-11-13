@@ -651,11 +651,18 @@ If the user's query refers to something from prior turns ("that domain", "its DN
                     "tool_plan": tool_plan,
                 })
 
-        for block in response.content:
-            if block.type == "text":
-                return JsonResponse({"success": False, "error": block.text})
-
-        return JsonResponse({"success": False, "error": "Could not understand query"})
+        # No tool chosen: a judgment question about earlier results, or one
+        # that needs clarifying. That's not an error. Hand it to the agent,
+        # which answers in full (the parser's 512-token reply gets cut off)
+        # and saves the answer to the thread so follow-ups can see it.
+        return JsonResponse({
+            "success": True,
+            "no_tool": True,
+            "interpreted_action": "",
+            "interpreted_params": {},
+            "confirmation_message": "No tool needed; the agent will answer directly.",
+            "tool_plan": [],
+        })
 
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
