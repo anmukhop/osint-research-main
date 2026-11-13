@@ -82,6 +82,31 @@ TOOLS = {
         "category": "breach"
     },
 
+    "infostealer_domain_search": {
+        "name": "infostealer_domain_search",
+        "description": "Look up aggregate Hudson Rock infostealer exposure for a company domain: employee and user counts plus the most frequently affected login URLs. Passive domain-level lookup; does not search for individual people.",
+        "confirmation": "check Hudson Rock's infostealer exposure for users of {domain}",
+        "server": "local",
+        "arguments": {
+            "domain": {
+                "type": "string",
+                "required": True,
+                "description": "A company domain or URL (for example, 'vt.edu' or 'https://www.vt.edu/about')"
+            },
+            "limit": {
+                "type": "integer",
+                "required": False,
+                "description": "Maximum employee and user login URLs to return (default: 5, maximum: 20)"
+            }
+        },
+        "examples": [
+            "Have any vt.edu employees had credentials stolen by infostealer malware?",
+            "Check Hudson Rock for infostealer exposure at example.com"
+        ],
+        "estimated_time": "2-5 seconds",
+        "category": "breach"
+    },
+
     # =========================================================================
     # WHOISXML API TOOLS (HTTP - hosted MCP server)
     # =========================================================================
@@ -596,8 +621,8 @@ SERVERS = {
     "local": {
         "name": "local",
         "type": "stdio",
-        "description": "Local OSINT tools (username search, email breach check)",
-        "tools": ["username_search", "email_breach_check"],
+        "description": "Local OSINT tools (username search, email breach check, domain infostealer search)",
+        "tools": ["username_search", "email_breach_check", "infostealer_domain_search"],
     },
     "whoisxml": {
         "name": "whoisxml",

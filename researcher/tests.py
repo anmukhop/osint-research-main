@@ -987,6 +987,7 @@ class AgentToolListTests(TestCase):
         self.assertIn("shodan_domain_info", listed)
         self.assertNotIn("subdomain_lookup", prompt)  # hidden (0 WhoisXML credits)
         self.assertNotIn("{tool_list}", prompt)
+        self.assertIn("Do not infer unique victims, credential validity, account access", prompt)
         # Every tool named in the rules is one the agent can call.
         rules = prompt.split("RULES FOR TOOL USE")[1].split("RULES FOR WHEN")[0]
         for named in re.findall(r"'([a-z_-]+)'", rules):
@@ -1182,3 +1183,116 @@ class EmailBreachCheckTests(TestCase):
         self.assertEqual(get_server_for_tool("email_breach_check"), "local")
         msg, _, _ = get_confirmation_message("email_breach_check", {"email": "test@example.com"})
         self.assertEqual(msg, "I'll check known data breaches for the email address 'test@example.com'.")
+
+
+class InfostealerDomainSearchTests(TestCase):
+    """Hudson Rock's company-domain API is faked; no network calls."""
+
+    def _fake_response(self, status=200, payload=None):
+        response = SimpleNamespace(status_code=status)
+        response.json = lambda: payload
+        return response
+
+    def _run(self, domain="vt.edu", status=200, payload=None, **kwargs):
+        from researcher.services.agents.infostealer import InfostealerDomainSearchAgent
+        with patch("researcher.services.agents.infostealer.requests.get",
+                   return_value=self._fake_response(status, payload)) as get:
+            result = InfostealerDomainSearchAgent().run(domain=domain, **kwargs)
+        return result, get
+
+    def test_normal_result_is_tidy_and_returns_top_login_urls(self):
+        payload = {
+            "total": 4446,
+            "employees": 273,
+            "users": 3148,
+            "third_parties": 1025,
+            "totalUrls": 1017,
+            "data": {
+                "employees_urls": [
+                    {"occurrence": 12, "type": "Employee", "url": "https://hr.vt.edu/login"},
+                    {"occurrence": 83, "type": "Employee", "url": "https://allgate.w2k.vt.edu/adfs/ls"},
+                ],
+                "clients_urls": [
+                    {"occurrence": 1718, "type": "User", "url": "https://login.vt.edu/profile/SAML2/Redirect/SSO"},
+                    {"occurrence": 9, "type": "User", "url": "https://portal.vt.edu/login"},
+                ],
+                "all_urls": [{"occurrence": 9999, "url": "https://ignored.vt.edu"}],
+            },
+            "logo": "ignored",
+            "stats": {"ignored": True},
+        }
+        result, get = self._run(
+            domain="https://www.VT.edu/about",
+            payload=payload,
+            limit=1,
+        )
+
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["domain"], "vt.edu")
+        self.assertEqual(
+            {key: result[key] for key in ("total", "employees", "users", "third_parties", "total_urls")},
+            {"total": 4446, "employees": 273, "users": 3148, "third_parties": 1025, "total_urls": 1017},
+        )
+        self.assertEqual(result["employee_urls"], [
+            {"url": "https://allgate.w2k.vt.edu/adfs/ls", "occurrence": 83},
+        ])
+        self.assertEqual(result["user_urls"], [
+            {"url": "https://login.vt.edu/profile/SAML2/Redirect/SSO", "occurrence": 1718},
+        ])
+        self.assertNotIn("all_urls", result)
+        self.assertNotIn("logo", result)
+        self.assertEqual(get.call_args.args[0], "https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-domain")
+        self.assertEqual(get.call_args.kwargs["params"], {"domain": "vt.edu"})
+        self.assertEqual(get.call_args.kwargs["headers"]["User-Agent"], "osint-research-platform")
+
+    def test_unknown_domain_returns_zero_counts_and_empty_urls(self):
+        payload = {
+            "total": 0, "employees": 0, "users": 0, "third_parties": 0, "totalUrls": 0,
+            "data": {"employees_urls": [], "clients_urls": []},
+        }
+        result, _ = self._run(domain="unknown.example", payload=payload)
+
+        self.assertIsNone(result["error"])
+        self.assertEqual(
+            {key: result[key] for key in ("total", "employees", "users", "third_parties", "total_urls")},
+            {"total": 0, "employees": 0, "users": 0, "third_parties": 0, "total_urls": 0},
+        )
+        self.assertEqual(result["employee_urls"], [])
+        self.assertEqual(result["user_urls"], [])
+
+    def test_non_success_statuses_return_clear_errors(self):
+        for status in (429, 500):
+            with self.subTest(status=status):
+                result, _ = self._run(status=status)
+                self.assertIn(str(status), result["error"])
+                self.assertEqual(result["employee_urls"], [])
+                self.assertEqual(result["user_urls"], [])
+
+    def test_bad_domain_is_rejected_without_calling_the_api(self):
+        for domain in ("", "https://", "not a domain", "localhost", "127.0.0.1", None, 42):
+            with self.subTest(domain=domain):
+                result, get = self._run(domain=domain)
+                self.assertIsNotNone(result["error"])
+                get.assert_not_called()
+
+    def test_timeout_returns_clear_error(self):
+        import requests
+        from researcher.services.agents.infostealer import InfostealerDomainSearchAgent
+        with patch("researcher.services.agents.infostealer.requests.get",
+                   side_effect=requests.Timeout()):
+            result = InfostealerDomainSearchAgent().run(domain="vt.edu")
+        self.assertIn("did not respond", result["error"])
+
+    def test_tool_is_registered_visible_and_confirms_naturally(self):
+        from researcher.services.mcp_client import AGENT_ALLOWED_TOOLS
+        from researcher.services.tool_registry import get_server_for_tool
+        self.assertIn("infostealer_domain_search", AGENT_ALLOWED_TOOLS)
+        self.assertEqual(get_server_for_tool("infostealer_domain_search"), "local")
+        msg, _, _ = get_confirmation_message(
+            "infostealer_domain_search",
+            {"domain": "vt.edu", "limit": 5},
+        )
+        self.assertEqual(
+            msg,
+            "I'll check Hudson Rock's infostealer exposure for users of 'vt.edu'.",
+        )

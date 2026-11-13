@@ -65,6 +65,7 @@ Try the deployed app and use any of the example queries below.
 | What you can do | Example query |
 |----------------|---------------|
 | Check an email address against known data breaches (XposedOrNot) | `Has test@example.com appeared in any data breaches?` |
+| Check aggregate employee and user infostealer exposure for a company domain (Hudson Rock Cavalier) | `Have any vt.edu employees had credentials stolen by infostealer malware?` |
 
 ---
 

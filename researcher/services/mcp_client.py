@@ -48,7 +48,7 @@ _SERVER_CONNECT_TIMEOUT = 30.0
 # denylist) so new upstream tools stay hidden until someone reviews them.
 AGENT_ALLOWED_TOOLS = frozenset({
     # Local
-    "username_search", "email_breach_check",
+    "username_search", "email_breach_check", "infostealer_domain_search",
     # WhoisXML (database lookups, cheap credits)
     "whois", "dns_lookup", "ipgeolocation", "ip_netblocks",
     "threat_intelligence", "vpn_proxy_detection", "account_balance",
@@ -713,6 +713,7 @@ RULES FOR WHEN NO TOOL FITS:
 RULES FOR THE FINAL ANSWER:
 - Be concise and factual.
 - Only report data actually present in the tool results.
+- For infostealer domain results, describe counts and URL occurrences as reported database aggregates. Do not infer unique victims, credential validity, account access, or what a URL is used for.
 - Do NOT invent URLs, profile links, counts, dates, or identifiers.
 - Do NOT include "Key Insights" or "Recommended Next Steps" sections.
 - Do NOT give advice, recommendations, or suggested workarounds.
@@ -1198,7 +1199,7 @@ def get_default_servers(custom_local_path: str = None, only: list[str] = None) -
         name="local",
         server_type="stdio",
         script_path=server_path,
-        description="Local OSINT tools (username search, person search)",
+        description="Local OSINT tools (username search, person search, breach data lookups)",
         enabled=True
     ))
     

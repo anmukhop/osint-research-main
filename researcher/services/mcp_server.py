@@ -7,6 +7,7 @@ This server can be connected to by any MCP client (Claude Desktop, custom client
 Tools exposed:
 - username_search: Search for a username across 600+ platforms
 - email_breach_check: Check an email address against known data breaches (XposedOrNot)
+- infostealer_domain_search: Look up aggregate infostealer exposure for a company domain
 - domain_whois: Look up WHOIS registration info for a domain
 - dns_lookup: Look up DNS records for a domain
 """
@@ -71,6 +72,24 @@ async def email_breach_check(email: str, max_breaches: int = 10) -> dict:
     )
 
 
+# TOOL: Company-domain Infostealer Search (Hudson Rock Cavalier)
+
+@mcp.tool()
+async def infostealer_domain_search(domain: str, limit: int = 5) -> dict:
+    """
+    Look up aggregate employee and customer credential-stealer counts and
+    top login URLs for a company domain. Passive database lookup; no API key.
+    """
+    from agents.infostealer import InfostealerDomainSearchAgent
+
+    agent = InfostealerDomainSearchAgent()
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: agent.run(domain=domain, limit=limit)
+    )
+
+
 # RESOURCES: Provide context about capabilities
 @mcp.resource("osint://capabilities")
 def get_capabilities() -> str:
@@ -105,6 +124,14 @@ Returns the breach count, a risk label and score, and the most recent breaches
 
 **Example queries:**
 - "Has test@example.com appeared in any data breaches?"
+
+### 3. infostealer_domain_search
+Look up aggregate employee and customer counts and their most frequently affected
+login URLs in Hudson Rock's infostealer database. This is a passive company-domain
+lookup; it does not search for individual email addresses or usernames.
+
+**Example queries:**
+- "Have any vt.edu employees had credentials stolen by infostealer malware?"
 
 ## Notes
 - Domain/IP intelligence (WHOIS, DNS, geolocation) is handled by the WhoisXML MCP server
