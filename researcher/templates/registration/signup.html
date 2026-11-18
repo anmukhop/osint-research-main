@@ -33,6 +33,9 @@
 <body>
     <div class="card">
         <h1>Sign up</h1>
+        {% if signup_closed %}
+        <p class="meta">Sign-up is closed. Ask the study team for an account.</p>
+        {% else %}
         <form method="post">
             {% csrf_token %}
             {% for field in form %}
@@ -56,6 +59,7 @@
             {% endfor %}
             <button type="submit">Create account</button>
         </form>
+        {% endif %}
         <p class="meta">
             Already have an account? <a href="{% url 'login' %}">Log in</a>
         </p>

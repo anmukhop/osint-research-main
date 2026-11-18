@@ -634,7 +634,7 @@ class QueryApprovalAndCancellationTests(TestCase):
     @override_settings(ALLOWED_HOSTS=["testserver"])
     def test_benchmark_page_renders_query_table(self):
         User = get_user_model()
-        user = User.objects.create_user(username="benchmark_user", password="pass12345")
+        user = User.objects.create_user(username="benchmark_user", password="pass12345", is_staff=True)
         self.client.force_login(user)
 
         response = self.client.get(reverse("benchmark"))
@@ -648,7 +648,7 @@ class QueryApprovalAndCancellationTests(TestCase):
     @override_settings(ALLOWED_HOSTS=["testserver"])
     def test_benchmark_run_calls_backend_agent_for_one_query(self):
         User = get_user_model()
-        user = User.objects.create_user(username="benchmark_runner", password="pass12345")
+        user = User.objects.create_user(username="benchmark_runner", password="pass12345", is_staff=True)
         self.client.force_login(user)
 
         fake_result = QueryResult(
@@ -1294,3 +1294,88 @@ class EmailBreachCheckTests(TestCase):
         self.assertEqual(get_server_for_tool("email_breach_check"), "local")
         msg, _, _ = get_confirmation_message("email_breach_check", {"email": "test@example.com"})
         self.assertEqual(msg, "I'll check known data breaches for the email address 'test@example.com'.")
+
+
+class LockdownTests(TestCase):
+    """Sign-up code, /admin/ on localhost only, daily search cap (#75)."""
+
+    def _signup(self, code=None):
+        data = {"username": "newperson", "password1": "x7!kLm#29qPz", "password2": "x7!kLm#29qPz"}
+        if code is not None:
+            data["signup_code"] = code
+        return self.client.post(reverse("signup"), data)
+
+    @override_settings(SIGNUP_CODE="blue-harbor", REQUIRE_LOGIN=True)
+    def test_signup_rejects_wrong_or_missing_code(self):
+        self.assertEqual(self._signup().status_code, 200)
+        self.assertEqual(self._signup("nope").status_code, 200)
+        self.assertFalse(get_user_model().objects.filter(username="newperson").exists())
+
+    @override_settings(SIGNUP_CODE="blue-harbor", REQUIRE_LOGIN=True)
+    def test_signup_accepts_right_code(self):
+        response = self._signup("blue-harbor")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(get_user_model().objects.filter(username="newperson").exists())
+
+    @override_settings(SIGNUP_CODE="", REQUIRE_LOGIN=True)
+    def test_shared_mode_without_code_closes_signup(self):
+        self.assertEqual(self.client.get(reverse("signup")).status_code, 403)
+        self.assertEqual(self._signup().status_code, 403)
+        self.assertFalse(get_user_model().objects.filter(username="newperson").exists())
+
+    @override_settings(SIGNUP_CODE="", REQUIRE_LOGIN=False)
+    def test_local_mode_without_code_is_unchanged(self):
+        self.assertEqual(self._signup().status_code, 302)
+
+    @override_settings(ADMIN_LOCAL_ONLY=True, ALLOWED_HOSTS=["localhost", "abc.ngrok-free.dev"])
+    def test_admin_hidden_on_public_host(self):
+        self.assertEqual(self.client.get("/admin/", HTTP_HOST="abc.ngrok-free.dev").status_code, 404)
+        self.assertEqual(self.client.get("/admin/login/", HTTP_HOST="abc.ngrok-free.dev").status_code, 404)
+        self.assertEqual(self.client.get("/admin/", HTTP_HOST="localhost:8000").status_code, 302)
+
+    @override_settings(ADMIN_LOCAL_ONLY=False, ALLOWED_HOSTS=["abc.ngrok-free.dev"])
+    def test_admin_reachable_when_flag_off(self):
+        self.assertEqual(self.client.get("/admin/", HTTP_HOST="abc.ngrok-free.dev").status_code, 302)
+
+    def _user_with_queries(self, n, staff=False, hours_ago=0):
+        user = get_user_model().objects.create_user("capped", password="pw", is_staff=staff)
+        session = Session.objects.create()
+        for _ in range(n):
+            q = Query.objects.create(session=session, user=user, user_query="q")
+            if hours_ago:
+                Query.objects.filter(pk=q.pk).update(created_at=django_tz.now() - timedelta(hours=hours_ago))
+        self.client.force_login(user)
+        return user
+
+    @override_settings(DAILY_QUERY_CAP=3)
+    def test_cap_blocks_parse_and_search(self):
+        self._user_with_queries(3)
+        r = self.client.post(reverse("parse_query"), json.dumps({"query": "x"}), content_type="application/json")
+        self.assertEqual(r.status_code, 429)
+        self.assertIn("Daily search limit", r.json()["error"])
+        r = self.client.get(reverse("search_stream"), {"query": "x"})
+        body = b"".join(r.streaming_content)
+        self.assertIn(b"Daily search limit", body)
+        self.assertEqual(Query.objects.count(), 3)  # no new row written
+
+    @override_settings(DAILY_QUERY_CAP=3)
+    def test_cap_ignores_queries_older_than_24h(self):
+        self._user_with_queries(3, hours_ago=25)
+        self.assertFalse(views._over_daily_cap(SimpleNamespace(user=get_user_model().objects.get())))
+
+    @override_settings(DAILY_QUERY_CAP=3)
+    def test_staff_not_capped(self):
+        user = self._user_with_queries(5, staff=True)
+        self.assertFalse(views._over_daily_cap(SimpleNamespace(user=user)))
+
+    @override_settings(DAILY_QUERY_CAP=3)
+    def test_under_cap_allowed(self):
+        user = self._user_with_queries(2)
+        self.assertFalse(views._over_daily_cap(SimpleNamespace(user=user)))
+
+    def test_benchmark_is_staff_only(self):
+        user = get_user_model().objects.create_user("plain", password="pw")
+        self.client.force_login(user)
+        self.assertEqual(self.client.get(reverse("benchmark")).status_code, 302)
+        r = self.client.post(reverse("benchmark_run"), json.dumps({"id": "x"}), content_type="application/json")
+        self.assertEqual(r.status_code, 302)

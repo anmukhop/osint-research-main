@@ -37,6 +37,17 @@ CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
 # can't spend API credits.
 REQUIRE_LOGIN = os.getenv("REQUIRE_LOGIN", "False") == "True"
 
+# Sign-up code. When set, the sign-up page asks for it. When REQUIRE_LOGIN is
+# on (shared mode) and no code is set, sign-up is closed entirely.
+SIGNUP_CODE = os.getenv("SIGNUP_CODE", "")
+
+# AI searches each account may run per rolling 24 hours (staff are exempt).
+# 0 turns the cap off.
+DAILY_QUERY_CAP = int(os.getenv("DAILY_QUERY_CAP", "100"))
+
+# When True, /admin/ answers only on localhost / 127.0.0.1 (not the ngrok link).
+ADMIN_LOCAL_ONLY = os.getenv("ADMIN_LOCAL_ONLY", "False") == "True"
+
 
 # Application definition
 
@@ -60,6 +71,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'researcher.middleware.AnonymousSessionMiddleware',
+    'researcher.middleware.AdminLocalOnlyMiddleware',
 ]
 
 ROOT_URLCONF = 'osint_project.urls'
