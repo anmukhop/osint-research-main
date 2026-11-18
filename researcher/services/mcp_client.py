@@ -29,6 +29,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from .llm_provider import get_provider
+from .agents.page_reader import READ_WEBPAGE_ENABLED
 
 import os
 import sys
@@ -50,6 +51,7 @@ _SERVER_CONNECT_TIMEOUT = 30.0
 AGENT_ALLOWED_TOOLS = frozenset({
     # Local
     "username_search", "email_breach_check",
+    "read_archived_page", "wayback_snapshots",
     # WhoisXML (database lookups, cheap credits)
     "whois", "dns_lookup", "ipgeolocation", "ip_netblocks",
     "threat_intelligence", "vpn_proxy_detection", "account_balance",
@@ -64,10 +66,15 @@ AGENT_ALLOWED_TOOLS = frozenset({
     "free-api", "trends-api",
 })
 
+# read_webpage (live page reader) is off until READ_WEBPAGE_ENABLED is True
+# in agents/page_reader.py; see the note there.
+if READ_WEBPAGE_ENABLED:
+    AGENT_ALLOWED_TOOLS = AGENT_ALLOWED_TOOLS | {"read_webpage"}
+
 # Tools that contact the target or other live sites instead of reading a database.
 LIVE_CONTACT_TOOLS = frozenset({
     "ssl_certificates", "email_verification", "categorization",
-    "domain_reputation", "username_search",
+    "domain_reputation", "username_search", "read_webpage",
 })
 
 STEALTH = os.getenv("OSINT_STEALTH_MODE", "").strip().lower() == "true"

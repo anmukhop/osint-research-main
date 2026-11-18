@@ -14,6 +14,9 @@ httpcore==1.0.9
 # HTTP requests (for agents)
 requests>=2.31.0
 
+# PDF text for the page reader (pure Python, no system libraries)
+pypdf>=5.0
+
 # Environment
 python-dotenv==1.2.1
 

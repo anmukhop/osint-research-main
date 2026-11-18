@@ -26,6 +26,10 @@ import string
 #   with {arg_name} placeholders filled from the tool call's params)
 # =============================================================================
 
+# read_webpage is DISABLED pending a decision (the site sees the visit from the
+# server's IP). The switch is READ_WEBPAGE_ENABLED in agents/page_reader.py.
+from .agents.page_reader import READ_WEBPAGE_ENABLED  # noqa: E402
+
 TOOLS = {
     # =========================================================================
     # LOCAL SERVER TOOLS (stdio - your custom agents)
@@ -80,6 +84,55 @@ TOOLS = {
         ],
         "estimated_time": "2-5 seconds",
         "category": "breach"
+    },
+
+    "read_archived_page": {
+        "name": "read_archived_page",
+        "description": "Read the Wayback Machine copy of a web page or PDF closest to a date (passive: only archive.org is contacted).",
+        "confirmation": "read the Wayback Machine copy of {url}",
+        "server": "local",
+        "arguments": {
+            "url": {"type": "string", "required": True,
+                    "description": "The original page address (e.g., 'example.com/about')"},
+            "date": {"type": "string", "required": False,
+                     "description": "YYYY, YYYY-MM, YYYY-MM-DD or a Wayback timestamp; the closest capture is read (default: newest)"},
+            "start": {"type": "integer", "required": False,
+                      "description": "Character to start from, to keep reading a long page (default: 0)"},
+            "max_chars": {"type": "integer", "required": False,
+                          "description": "Most characters of text to return (default: 8000, max 40000)"},
+            "max_links": {"type": "integer", "required": False,
+                          "description": "Most links to list (default: 40)"},
+        },
+        "examples": [
+            "What did example.com/about say in 2015?",
+            "Read the archived copy of example.com from July 2018"
+        ],
+        "estimated_time": "3-15 seconds",
+        "category": "page"
+    },
+
+    "wayback_snapshots": {
+        "name": "wayback_snapshots",
+        "description": "List Wayback Machine captures of a URL, or every archived URL under a path, host or domain (passive).",
+        "confirmation": "list what the Wayback Machine has archived for {url}",
+        "server": "local",
+        "arguments": {
+            "url": {"type": "string", "required": True,
+                    "description": "A URL or domain (e.g., 'example.com' or 'example.com/blog/')"},
+            "match_type": {"type": "string", "required": False,
+                           "description": "exact (captures of one URL), prefix, host, or domain (all subdomains) (default: exact)"},
+            "from_date": {"type": "string", "required": False, "description": "Earliest date, YYYY[-MM[-DD]]"},
+            "to_date": {"type": "string", "required": False, "description": "Latest date, YYYY[-MM[-DD]]"},
+            "limit": {"type": "integer", "required": False, "description": "Most results (default: 50, max 500)"},
+            "newest_first": {"type": "boolean", "required": False, "description": "Newest captures first (default: false)"},
+            "only_ok": {"type": "boolean", "required": False, "description": "Only captures that returned HTTP 200"},
+        },
+        "examples": [
+            "List the pages the Wayback Machine has archived for example.com",
+            "When was example.com/careers archived?"
+        ],
+        "estimated_time": "3-20 seconds",
+        "category": "page"
     },
 
     # =========================================================================
@@ -585,6 +638,38 @@ TOOLS = {
 }
 
 
+# Disabled tools: kept here so re-enabling is one flag (READ_WEBPAGE_ENABLED in agents/page_reader.py).
+_DISABLED_TOOLS = {
+    "read_webpage": {
+        "name": "read_webpage",
+        "description": "Read one web page or PDF as text with a single live visit; falls back to the newest Wayback Machine copy if the visit fails.",
+        "confirmation": "visit {url} once and read its text",
+        "server": "local",
+        "arguments": {
+            "url": {"type": "string", "required": True,
+                    "description": "The page or PDF to read (e.g., 'https://example.com/about')"},
+            "start": {"type": "integer", "required": False,
+                      "description": "Character to start from, to keep reading a long page (default: 0)"},
+            "max_chars": {"type": "integer", "required": False,
+                          "description": "Most characters of text to return (default: 8000, max 40000)"},
+            "max_links": {"type": "integer", "required": False,
+                          "description": "Most links to list (default: 40)"},
+            "fallback_to_archive": {"type": "boolean", "required": False,
+                                    "description": "Read the newest Wayback copy if the live visit fails (default: true)"},
+        },
+        "examples": [
+            "What does the homepage of example.com say?",
+            "Which JavaScript libraries does example.com load?",
+            "Read the PDF at https://example.com/report.pdf"
+        ],
+        "estimated_time": "2-10 seconds",
+        "category": "page"
+    }
+}
+if READ_WEBPAGE_ENABLED:
+    TOOLS.update(_DISABLED_TOOLS)
+
+
 # =============================================================================
 # SERVER REGISTRY
 # =============================================================================
@@ -596,8 +681,10 @@ SERVERS = {
     "local": {
         "name": "local",
         "type": "stdio",
-        "description": "Local OSINT tools (username search, email breach check)",
-        "tools": ["username_search", "email_breach_check"],
+        "description": "Local OSINT tools (username search, email breach check, Wayback Machine page reader)",
+        "tools": ["username_search", "email_breach_check",
+                  "read_archived_page", "wayback_snapshots"]
+                 + (["read_webpage"] if READ_WEBPAGE_ENABLED else []),
     },
     "whoisxml": {
         "name": "whoisxml",
