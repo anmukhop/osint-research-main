@@ -1,6 +1,6 @@
 # Which tools the platform's AI agent may call
 
-As of Nov 10, 2026. The code list is `AGENT_ALLOWED_TOOLS` in `researcher/services/mcp_client.py` and must match the **Allowed** column. The servers expose 99 tools today (local 2, WhoisXML 35, Shodan 11, BuiltWith 51). The agent can call 27 of them.
+As of Nov 10, 2026. The code list is `AGENT_ALLOWED_TOOLS` in `researcher/services/mcp_client.py` and must match the **Allowed** column. The servers expose 101 tools today (local 4, WhoisXML 35, Shodan 11, BuiltWith 51). The agent can call 29 of them. (Wayback page-reader tools added Nov 13 on the `page-reader` branch; the live `read_webpage` is built but disabled, see below.)
 
 **Passive** = reads a database someone else already built. The target is not contacted in any way.
 **Live** = something contacts the target or another live site now. For WhoisXML tools that contact comes from WhoisXML's servers, never the analyst's computer, and it's one ordinary visit or check, not a scan. Live recon is allowed by default. Evidence backing this up is that OSINT Clinic (CHI '25) Table 1 lists port scanning as a normal Website Vulnerabilities technique.
@@ -9,12 +9,14 @@ CVA categories are the seven from OSINT Clinic Table 1. "(2nd)" = a second categ
 
 Credits are as of Nov 10, 2026 (WhoisXML `account_balance`, BuiltWith `whoami-api`/`usage-api`, Shodan `api_info` on Nov 9).
 
-## Allowed (27)
+## Allowed (29)
 
 | Tool | Server | Passive / Live | Cost per call | CVA category | Why |
 |---|---|---|---|---|---|
 | `username_search` | local | Live (checks profile pages on social sites, not the target) | free | Employee Public Information | Finds an employee's accounts across sites |
 | `email_breach_check` | local (XposedOrNot) | Passive | free | Breach Data | Which breaches an email appears in |
+| `read_archived_page` | local (Wayback Machine) | Passive (only archive.org is contacted) | free | Website Vulnerabilities; Brand Monitoring (2nd) | Reads a page or PDF as archived on a date |
+| `wayback_snapshots` | local (Wayback CDX) | Passive | free | Website Vulnerabilities | Lists captures of a URL, or every archived URL under a site (old, hidden or unlinked pages) |
 | `whois` | WhoisXML | Passive | 1 WHOIS credit (378 left) | Network Discovery; Physical Assets (2nd) | Registration record; lists the company address unless a privacy service hides it |
 | `dns_lookup` | WhoisXML | Passive | 1 DNS credit (374) | Network Discovery; Third-Party Services (2nd) | DNS records; mail and TXT records name vendors (e.g. Mailgun) |
 | `ipgeolocation` | WhoisXML | Passive | 1 credit (958) | Physical Assets | Where an IP is located (often a data center, not an office) |
@@ -77,16 +79,22 @@ These are not counted in the totals above. Code: `researcher/services/free_api_r
 | `bulk_*` (WhoisXML: `bulk_whois`, `bulk_dns_lookup`, `bulk_email_verification`, `bulk_ip_geolocation`, `bulk_vpn_proxy_detection`, `bulk_subdomain_lookup`, `bulk_job_status`, `bulk_job_results`) | Up to 10,000 credits per call |
 | BuiltWith `payment-*`, `x402-*`, `mpp-*` | They buy things or move money |
 
+## Built but disabled
+
+| Tool | Server | Passive / Live | Why it's off |
+|---|---|---|---|
+| `read_webpage` | local | Live (one plain GET of the given URL; no forms, no JavaScript, no crawling; Wayback copy if the visit fails) | It visits the target site from the platform server's IP address, so the site can see (and log) the visit. Micah, Nov 13: off until it's discussed with Anirban or Dr. Luther. Re-enable with `READ_WEBPAGE_ENABLED = True` in `researcher/services/agents/page_reader.py`; it stays on the live list, so stealth mode would still hide it. |
+
 ## CVA coverage (allowed tools, main + 2nd)
 
 | CVA category | Tools | 2+? |
 |---|---|---|
 | Network Discovery | whois, dns_lookup, ip_netblocks, vpn_proxy_detection, ssl_certificates, shodan_search, shodan_count, reverse_dns_lookup, shodan_domain_info, shodan_dns_lookup | yes |
-| Website Vulnerabilities | ip_lookup, cve_lookup, cpe_lookup, cves_by_product, threat_intelligence, domain_reputation | yes |
+| Website Vulnerabilities | ip_lookup, cve_lookup, cpe_lookup, cves_by_product, threat_intelligence, domain_reputation, read_archived_page, wayback_snapshots | yes |
 | Physical Assets | ipgeolocation; whois (2nd) | yes, weak |
 | Third-Party Services | free-api, trends-api; dns_lookup (2nd) | yes, weak (no product names until `domain-api`) |
 | Employee Public Information | username_search, email_verification, disposable_email_check | yes |
-| Brand Monitoring | categorization (+ GDELT news-tone tool, to build) | no, until GDELT |
+| Brand Monitoring | categorization; read_archived_page (2nd) | yes, weak |
 | Breach Data | email_breach_check (+ Hudson Rock, from Jeremy) | no, until Hudson Rock |
 
 The agent's instructions name the live tools and tell it to skip them when a user asks for passive-only work. Users don't see this.

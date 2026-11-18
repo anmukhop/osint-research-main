@@ -66,6 +66,14 @@ Try the deployed app and use any of the example queries below.
 |----------------|---------------|
 | Check an email address against known data breaches (XposedOrNot) | `Has test@example.com appeared in any data breaches?` |
 
+### Reading Pages
+| What you can do | Example query |
+|----------------|---------------|
+| Read an archived copy from the Wayback Machine (passive) | `What did example.com/about say in 2015?` |
+| List archived pages under a site, including old or unlinked ones (passive) | `List the pages the Wayback Machine has archived for example.com` |
+
+Reading a live page (`read_webpage`) is built but **switched off**: it would visit the target site from the platform server's IP address, so the site could see the visit. Whether to allow it is an open question for Anirban and Dr. Luther. The switch is `READ_WEBPAGE_ENABLED` in `researcher/services/agents/page_reader.py`.
+
 ---
 
 ## How It Works

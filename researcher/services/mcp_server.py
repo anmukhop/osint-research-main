@@ -7,6 +7,9 @@ This server can be connected to by any MCP client (Claude Desktop, custom client
 Tools exposed:
 - username_search: Search for a username across 600+ platforms
 - email_breach_check: Check an email address against known data breaches (XposedOrNot)
+- read_webpage: DISABLED (live visit to the target); see READ_WEBPAGE_ENABLED in agents/page_reader.py
+- read_archived_page: Read the Wayback Machine copy of a page or PDF (passive)
+- wayback_snapshots: List Wayback captures of a URL, or archived URLs under a site (passive)
 - domain_whois: Look up WHOIS registration info for a domain
 - dns_lookup: Look up DNS records for a domain
 """
@@ -72,6 +75,92 @@ async def email_breach_check(email: str, max_breaches: int = 10) -> dict:
     )
 
 
+# TOOLS: Page reader (live page, Wayback copies, Wayback URL listing)
+
+# DISABLED pending a decision: registered only when READ_WEBPAGE_ENABLED is
+# True in agents/page_reader.py (it visits the target from the server's IP).
+async def read_webpage(url: str, start: int = 0, max_chars: int = 8000, max_links: int = 40,
+                       fallback_to_archive: bool = True) -> dict:
+    """
+    Read one web page or PDF as text. LIVE: makes one ordinary visit (a plain GET)
+    to the site, like opening it in a browser without running its JavaScript.
+    Returns the title, visible text, meta tags, links, script sources (useful for
+    spotting JavaScript library versions), HTML comments, and for PDFs the page
+    count and document metadata. Long text is cut at max_chars; call again with
+    start set to read further. If the live visit fails (error page, blocked,
+    site down) and fallback_to_archive is true, it returns the newest Wayback
+    Machine copy instead, with source="wayback" and the capture date.
+    Does not submit forms, log in, or follow links.
+    """
+    from agents.page_reader import PageReaderAgent
+
+    agent = PageReaderAgent()
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: agent.read_live(url=url, start=start, max_chars=max_chars, max_links=max_links,
+                                fallback_to_archive=fallback_to_archive)
+    )
+
+
+try:  # run as a script from this folder (how mcp_client starts it)
+    from agents.page_reader import READ_WEBPAGE_ENABLED  # noqa: E402
+except ImportError:  # imported as researcher.services.mcp_server
+    from .agents.page_reader import READ_WEBPAGE_ENABLED  # noqa: E402
+
+if READ_WEBPAGE_ENABLED:
+    mcp.tool()(read_webpage)
+
+
+@mcp.tool()
+async def read_archived_page(url: str, date: str = "", start: int = 0, max_chars: int = 8000,
+                             max_links: int = 40) -> dict:
+    """
+    Read the Internet Archive (Wayback Machine) copy of a web page or PDF as text.
+    Passive: only archive.org is contacted, never the site itself. date (YYYY,
+    YYYY-MM or YYYY-MM-DD) picks the capture closest to that date; empty means
+    the newest capture. Returns the capture date (archived_at) and the same
+    fields as a live page read (title, text, meta tags, links, script sources,
+    HTML comments, PDF text). Use wayback_snapshots first to see which captures
+    or URLs exist.
+    """
+    from agents.page_reader import PageReaderAgent
+
+    agent = PageReaderAgent()
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: agent.read_archived(url=url, timestamp=date or None, start=start,
+                                    max_chars=max_chars, max_links=max_links)
+    )
+
+
+@mcp.tool()
+async def wayback_snapshots(url: str, match_type: str = "exact", from_date: str = "",
+                            to_date: str = "", limit: int = 50, newest_first: bool = False,
+                            only_ok: bool = False) -> dict:
+    """
+    List what the Internet Archive (Wayback Machine) has archived. Passive: only
+    archive.org is contacted. match_type "exact" lists the captures of one URL
+    over time (identical consecutive captures merged). "prefix" (everything under
+    a path, e.g. example.com/blog/), "host" (one host name) or "domain" (the
+    domain and all its subdomains) list each distinct archived URL once: good for
+    finding old, hidden or unlinked pages. Dates are YYYY, YYYY-MM or YYYY-MM-DD.
+    only_ok keeps captures that returned HTTP 200. Each result has an archive_url
+    and a timestamp to pass to read_archived_page as date.
+    """
+    from agents.page_reader import WaybackSnapshotsAgent
+
+    agent = WaybackSnapshotsAgent()
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: agent.run(url=url, match_type=match_type, from_date=from_date or None,
+                          to_date=to_date or None, limit=limit, newest_first=newest_first,
+                          only_ok=only_ok)
+    )
+
+
 # RESOURCES: Provide context about capabilities
 @mcp.resource("osint://capabilities")
 def get_capabilities() -> str:
@@ -106,6 +195,16 @@ Returns the breach count, a risk label and score, and the most recent breaches
 
 **Example queries:**
 - "Has test@example.com appeared in any data breaches?"
+
+### 3. read_archived_page / wayback_snapshots
+Read a web page or PDF as text from the Internet Archive's Wayback Machine
+(read_archived_page; passive: only archive.org is contacted). wayback_snapshots
+lists the captures of a URL, or every archived URL under a site (old or hidden
+pages). Free; no API key.
+
+**Example queries:**
+- "What did example.com/about say in 2015?"
+- "List the pages the Wayback Machine has archived for example.com"
 
 ## Notes
 - Domain/IP intelligence (WHOIS, DNS, geolocation) is handled by the WhoisXML MCP server

@@ -1294,3 +1294,369 @@ class EmailBreachCheckTests(TestCase):
         self.assertEqual(get_server_for_tool("email_breach_check"), "local")
         msg, _, _ = get_confirmation_message("email_breach_check", {"email": "test@example.com"})
         self.assertEqual(msg, "I'll check known data breaches for the email address 'test@example.com'.")
+
+
+class PageReaderTests(TestCase):
+    """read_archived_page / wayback_snapshots, plus the code behind read_webpage.
+
+    read_webpage is DISABLED pending a decision (READ_WEBPAGE_ENABLED in
+    agents/page_reader.py): the agent can't call it, but the tests that use
+    PageReaderAgent.read_live stay so it can be switched back on safely.
+    HTTP and DNS are faked; no network calls.
+    """
+
+    PUBLIC_IP = "93.184.215.14"
+
+    class _FakeResponse:
+        def __init__(self, status=200, body=b"", headers=None, url=None):
+            self.status_code = status
+            self._body = body
+            self.headers = headers or {}
+            self.text = body.decode("utf-8", "replace") if isinstance(body, bytes) else body
+            self.closed = False
+
+        def iter_content(self, chunk_size=65536):
+            for i in range(0, len(self._body), chunk_size):
+                yield self._body[i:i + chunk_size]
+
+        def json(self):
+            return json.loads(self.text)
+
+        def close(self):
+            self.closed = True
+
+    class _FakeSession:
+        """Answers GETs from a {url: response} map; records every URL asked for."""
+
+        def __init__(self, routes):
+            self.routes = routes
+            self.calls = []
+
+        def get(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            for prefix, response in self.routes.items():
+                if url.startswith(prefix):
+                    if isinstance(response, Exception):
+                        raise response
+                    return response
+            raise AssertionError(f"unexpected GET {url}")
+
+    def _dns(self, ip=None):
+        ip = ip or self.PUBLIC_IP
+        return patch("researcher.services.agents.page_reader.socket.getaddrinfo",
+                     return_value=[(2, 1, 6, "", (ip, 0))])
+
+    def _html(self, body, status=200, headers=None):
+        return self._FakeResponse(status, body.encode(), {"Content-Type": "text/html; charset=utf-8", **(headers or {})})
+
+    SAMPLE = """<!doctype html><html><head><title> Acme  Corp </title>
+        <meta name="description" content="Industrial widgets">
+        <meta name="generator" content="WordPress 6.2">
+        <script src="/js/jquery-1.12.4.min.js"></script><script>var secret = "hidden";</script>
+        <style>.x{color:red}</style></head>
+        <body><!-- TODO remove staging link: staging.acme.example -->
+        <h1>Welcome</h1><p>We make   widgets.</p>
+        <a href="/about">About us</a> <a href="https://other.example/x">Partner</a>
+        <a href="javascript:void(0)">nope</a><noscript>enable js</noscript>
+        </body></html>"""
+
+    def test_live_html_is_turned_into_text_links_scripts_and_comments(self):
+        from researcher.services.agents.page_reader import PageReaderAgent
+        session = self._FakeSession({"https://acme.example/": self._html(self.SAMPLE)})
+        with self._dns():
+            result = PageReaderAgent(session=session).read_live("acme.example/")
+
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["source"], "live")
+        self.assertEqual(result["title"], "Acme Corp")
+        self.assertIn("Welcome", result["text"])
+        self.assertIn("We make widgets.", result["text"])
+        self.assertNotIn("secret", result["text"])
+        self.assertNotIn("color:red", result["text"])
+        self.assertNotIn("enable js", result["text"])
+        self.assertEqual(result["meta"]["generator"], "WordPress 6.2")
+        self.assertEqual(result["scripts"], ["https://acme.example/js/jquery-1.12.4.min.js"])
+        self.assertEqual(result["inline_scripts"], 1)
+        self.assertIn("TODO remove staging link: staging.acme.example", result["comments"])
+        self.assertEqual(result["links"], [
+            {"url": "https://acme.example/about", "text": "About us"},
+            {"url": "https://other.example/x", "text": "Partner"},
+        ])
+        # Exactly one plain GET, no automatic redirects, with time limits.
+        self.assertEqual(len(session.calls), 1)
+        kwargs = session.calls[0][1]
+        self.assertFalse(kwargs["allow_redirects"])
+        self.assertTrue(kwargs["timeout"])
+
+    def test_long_text_is_cut_and_can_be_continued_with_start(self):
+        from researcher.services.agents.page_reader import PageReaderAgent
+        page = "<html><body><p>" + "a" * 500 + "b" * 500 + "</p></body></html>"
+        with self._dns():
+            first = PageReaderAgent(session=self._FakeSession({"https://acme.example": self._html(page)})).read_live(
+                "https://acme.example", max_chars=500)
+            second = PageReaderAgent(session=self._FakeSession({"https://acme.example": self._html(page)})).read_live(
+                "https://acme.example", max_chars=500, start=500)
+        self.assertEqual(first["text"], "a" * 500)
+        self.assertTrue(first["more_text"])
+        self.assertEqual(first["total_chars"], 1000)
+        self.assertEqual(second["text"], "b" * 500)
+        self.assertFalse(second["more_text"])
+
+    def test_redirects_are_followed_and_each_hop_is_checked(self):
+        from researcher.services.agents.page_reader import PageReaderAgent
+        session = self._FakeSession({
+            "http://acme.example/": self._FakeResponse(301, b"", {"Location": "https://www.acme.example/home"}),
+            "https://www.acme.example/home": self._html("<title>Home</title><p>hi</p>"),
+        })
+        with self._dns():
+            result = PageReaderAgent(session=session).read_live("http://acme.example/")
+        self.assertEqual(result["final_url"], "https://www.acme.example/home")
+        self.assertEqual(result["title"], "Home")
+
+        session = self._FakeSession({
+            "https://acme.example/": self._FakeResponse(302, b"", {"Location": "http://169.254.169.254/latest"}),
+        })
+        with patch("researcher.services.agents.page_reader.socket.getaddrinfo",
+                   side_effect=lambda host, port: [(2, 1, 6, "", (
+                       "169.254.169.254" if host == "169.254.169.254" else self.PUBLIC_IP, 0))]):
+            result = PageReaderAgent(session=session).read_live("https://acme.example/")
+        self.assertIn("private network", result["error"])
+        self.assertEqual(len(session.calls), 1)
+
+    def test_private_and_bad_addresses_are_refused_without_a_request(self):
+        from researcher.services.agents.page_reader import PageReaderAgent
+        session = self._FakeSession({})
+        for bad in ["", None, 42, "ftp://acme.example/file", "file:///etc/passwd",
+                    "https://user:pw@acme.example/", "has space.example"]:
+            with self.subTest(url=bad):
+                result = PageReaderAgent(session=session).read_live(bad)
+                self.assertIsNotNone(result["error"])
+        for ip in ["127.0.0.1", "10.0.0.5", "192.168.1.1", "169.254.169.254", "::1"]:
+            with self.subTest(ip=ip), self._dns(ip):
+                result = PageReaderAgent(session=session).read_live("https://intranet.example/")
+                self.assertIn("private network", result["error"])
+        result = PageReaderAgent(session=session).read_live("http://localhost:8000/admin")
+        self.assertIn("private network", result["error"])
+        self.assertEqual(session.calls, [])
+
+    def test_failed_live_visit_falls_back_to_the_newest_wayback_copy(self):
+        import requests
+        from researcher.services.agents.page_reader import PageReaderAgent
+        archived = self._html("<title>Old Acme</title><p>Founded 1999</p>")
+        archived.url = None
+        session = self._FakeSession({
+            "https://acme.example/": requests.ConnectionError(),
+            "https://web.archive.org/web/": self._FakeResponse(
+                302, b"", {"Location": "https://web.archive.org/web/20180715123000id_/https://acme.example/"}),
+        })
+        # The second Wayback GET (after the redirect) must return the page.
+        original_get = session.get
+
+        def get(url, **kwargs):
+            if url.startswith("https://web.archive.org/web/20180715123000id_/"):
+                session.calls.append((url, kwargs))
+                return archived
+            return original_get(url, **kwargs)
+        session.get = get
+
+        with self._dns():
+            result = PageReaderAgent(session=session).read_live("https://acme.example/")
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["source"], "wayback")
+        self.assertEqual(result["archived_at"], "2018-07-15T12:30:00Z")
+        self.assertEqual(result["final_url"], "https://acme.example/")
+        self.assertEqual(result["archive_url"], "https://web.archive.org/web/20180715123000/https://acme.example/")
+        self.assertIn("Could not connect", result["live_error"])
+        self.assertIn("Founded 1999", result["text"])
+
+    def test_no_fallback_when_turned_off_and_http_errors_are_reported(self):
+        from researcher.services.agents.page_reader import PageReaderAgent
+        session = self._FakeSession({"https://acme.example/": self._html("nope", status=403)})
+        with self._dns():
+            result = PageReaderAgent(session=session).read_live("https://acme.example/", fallback_to_archive=False)
+        self.assertIn("403", result["error"])
+        self.assertEqual(len(session.calls), 1)
+
+    def test_archived_read_asks_for_the_raw_capture_nearest_the_date(self):
+        from researcher.services.agents.page_reader import PageReaderAgent
+        session = self._FakeSession({
+            "https://web.archive.org/web/20150601id_/https://acme.example/about":
+                self._html("<title>About</title><p>CEO: Pat</p>"),
+        })
+        with self._dns():
+            result = PageReaderAgent(session=session).read_archived("acme.example/about", timestamp="2015-06-01")
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["source"], "wayback")
+        self.assertEqual(result["archived_at"], "2015-06-01T00:00:00Z")
+        self.assertIn("CEO: Pat", result["text"])
+        # Only archive.org is contacted, never the site.
+        self.assertTrue(all(url.startswith("https://web.archive.org/") for url, _ in session.calls))
+
+    def test_archived_read_reports_missing_copies_and_bad_dates(self):
+        from researcher.services.agents.page_reader import PageReaderAgent
+        session = self._FakeSession({"https://web.archive.org/": self._html("not found", status=404)})
+        with self._dns():
+            result = PageReaderAgent(session=session).read_archived("acme.example")
+            self.assertIn("404", result["error"])
+            result = PageReaderAgent(session=session).read_archived("acme.example", timestamp="July")
+            self.assertIn("Couldn't read the date", result["error"])
+
+    def test_plain_text_and_unsupported_types(self):
+        from researcher.services.agents.page_reader import PageReaderAgent
+        session = self._FakeSession({
+            "https://acme.example/robots.txt": self._FakeResponse(200, b"User-agent: *\nDisallow: /staging/",
+                                                                 {"Content-Type": "text/plain"}),
+            "https://acme.example/logo.png": self._FakeResponse(200, b"\x89PNG....", {"Content-Type": "image/png"}),
+        })
+        with self._dns():
+            text = PageReaderAgent(session=session).read_live("https://acme.example/robots.txt")
+            # Fallback stays on: the visit worked, so the archive must not be tried.
+            image = PageReaderAgent(session=session).read_live("https://acme.example/logo.png")
+        self.assertEqual(text["kind"], "text")
+        self.assertIn("Disallow: /staging/", text["text"])
+        self.assertIn("image/png", image["error"])
+
+    def test_oversized_download_is_cut_short(self):
+        from researcher.services.agents import page_reader
+        big = b"<html><body><p>" + b"x" * 5000 + b"</p></body></html>"
+        session = self._FakeSession({"https://acme.example/": self._FakeResponse(
+            200, big, {"Content-Type": "text/html"})})
+        with self._dns(), patch.object(page_reader, "MAX_BYTES", 1000):
+            result = page_reader.PageReaderAgent(session=session).read_live("https://acme.example/")
+        self.assertIn("only the first part", result["note"])
+        self.assertLessEqual(result["total_chars"], 1000)
+
+    def test_pdf_text_and_metadata(self):
+        try:
+            import pypdf  # noqa: F401
+        except ImportError:
+            self.skipTest("pypdf not installed")
+        from researcher.services.agents.page_reader import PageReaderAgent
+        pdf = _tiny_pdf("Water test 2020: lead 3 ppb")
+        session = self._FakeSession({"https://acme.example/r.pdf": self._FakeResponse(
+            200, pdf, {"Content-Type": "application/pdf"})})
+        with self._dns():
+            result = PageReaderAgent(session=session).read_live("https://acme.example/r.pdf")
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["kind"], "pdf")
+        self.assertEqual(result["pdf_pages"], 1)
+        self.assertIn("lead 3 ppb", result["text"])
+        self.assertEqual(result["meta"]["author"], "EPA Region 3")
+
+    def test_snapshot_listing_builds_the_cdx_query_and_tidies_rows(self):
+        from researcher.services.agents.page_reader import WaybackSnapshotsAgent
+        rows = [["timestamp", "original", "statuscode", "mimetype", "length"],
+                ["20180715123000", "https://acme.example/launch", "200", "text/html", "1234"],
+                ["20190101000000", "https://acme.example/old.pdf", "-", "application/pdf", "99"],
+                ["20200101000000", "https://acme.example/x", "404", "text/html", "10"]]
+        session = self._FakeSession({"https://web.archive.org/cdx/": self._FakeResponse(
+            200, json.dumps(rows).encode())})
+        result = WaybackSnapshotsAgent(session=session).run(
+            "https://acme.example/whatever", match_type="domain", from_date="2018", to_date="2020-06", limit=2)
+
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["url"], "acme.example")
+        self.assertEqual(result["count"], 2)
+        self.assertTrue(result["maybe_more"])
+        self.assertEqual(result["snapshots"][0], {
+            "timestamp": "20180715123000", "archived_at": "2018-07-15T12:30:00Z",
+            "url": "https://acme.example/launch", "status": "200", "mimetype": "text/html",
+            "archive_url": "https://web.archive.org/web/20180715123000/https://acme.example/launch",
+        })
+        self.assertIsNone(result["snapshots"][1]["status"])
+        params = dict(session.calls[0][1]["params"])
+        self.assertEqual(params["matchType"], "domain")
+        self.assertEqual(params["collapse"], "urlkey")
+        self.assertEqual((params["from"], params["to"], params["limit"]), ("2018", "202006", "3"))
+
+    def test_snapshot_listing_newest_first_empty_and_errors(self):
+        from researcher.services.agents.page_reader import WaybackSnapshotsAgent
+        rows = [["timestamp", "original", "statuscode", "mimetype", "length"],
+                ["2019", "https://acme.example/", "200", "text/html", "1"],
+                ["2020", "https://acme.example/", "200", "text/html", "1"]]
+        session = self._FakeSession({"https://web.archive.org/cdx/": self._FakeResponse(
+            200, json.dumps(rows).encode())})
+        result = WaybackSnapshotsAgent(session=session).run("acme.example", newest_first=True)
+        self.assertEqual([s["timestamp"] for s in result["snapshots"]], ["2020", "2019"])
+        self.assertEqual(dict(session.calls[0][1]["params"])["limit"], "-51")
+        self.assertEqual(dict(session.calls[0][1]["params"])["collapse"], "digest")
+
+        empty = WaybackSnapshotsAgent(session=self._FakeSession({"https://web.archive.org/cdx/": self._FakeResponse(
+            200, b"")})).run("acme.example")
+        self.assertEqual((empty["count"], empty["error"]), (0, None))
+
+        for status in (429, 503):
+            with self.subTest(status=status):
+                failed = WaybackSnapshotsAgent(session=self._FakeSession({
+                    "https://web.archive.org/cdx/": self._FakeResponse(status, b"")})).run("acme.example")
+                self.assertIn(str(status), failed["error"])
+
+        for bad, match in [("", "exact"), ("not a url", "exact"), ("acme.example", "everything")]:
+            with self.subTest(url=bad, match=match):
+                self.assertIsNotNone(WaybackSnapshotsAgent(session=self._FakeSession({})).run(
+                    bad, match_type=match)["error"])
+
+    def test_archive_tools_are_registered_and_passive(self):
+        from researcher.services.mcp_client import AGENT_ALLOWED_TOOLS, LIVE_CONTACT_TOOLS
+        from researcher.services.tool_registry import get_server_for_tool, SERVERS
+        for name in ("read_archived_page", "wayback_snapshots"):
+            with self.subTest(tool=name):
+                self.assertIn(name, AGENT_ALLOWED_TOOLS)
+                self.assertEqual(get_server_for_tool(name), "local")
+                self.assertIn(name, SERVERS["local"]["tools"])
+                self.assertNotIn(name, LIVE_CONTACT_TOOLS)
+        msg, _, _ = get_confirmation_message("read_archived_page", {"url": "example.com"})
+        self.assertEqual(msg, "I'll read the Wayback Machine copy of 'example.com'.")
+
+    def test_live_page_reader_is_disabled_everywhere(self):
+        # DISABLED pending a decision (Nov 13): read_webpage visits the target from
+        # the server's IP. If READ_WEBPAGE_ENABLED is switched on, update this test.
+        from researcher.services import tool_registry
+        from researcher.services.agents import page_reader
+        from researcher.services.mcp_client import AGENT_ALLOWED_TOOLS, LIVE_CONTACT_TOOLS
+        self.assertFalse(page_reader.READ_WEBPAGE_ENABLED)
+        self.assertNotIn("read_webpage", AGENT_ALLOWED_TOOLS)
+        self.assertNotIn("read_webpage", tool_registry.TOOLS)
+        self.assertNotIn("read_webpage", tool_registry.SERVERS["local"]["tools"])
+        self.assertNotIn("read_webpage", tool_registry.get_tools_for_prompt())
+        # Still marked live, so stealth mode hides it if it's ever re-enabled.
+        self.assertIn("read_webpage", LIVE_CONTACT_TOOLS)
+        self.assertIn("read_webpage", tool_registry._DISABLED_TOOLS)
+
+    def test_mcp_server_does_not_expose_read_webpage(self):
+        import subprocess, sys as _sys
+        from pathlib import Path
+        services = Path(__file__).resolve().parent / "services"
+        code = ("import asyncio, mcp_server; "
+                "print(sorted(t.name for t in asyncio.run(mcp_server.mcp.list_tools())))")
+        out = subprocess.run([_sys.executable, "-c", code], cwd=services,
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("read_archived_page", out.stdout)
+        self.assertIn("wayback_snapshots", out.stdout)
+        self.assertNotIn("read_webpage", out.stdout)
+
+def _tiny_pdf(text: str) -> bytes:
+    """A one-page PDF with a text layer and an Author, built by hand (no PDF library needed)."""
+    stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Author (EPA Region 3) /Title (Test report) >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += (f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R /Info 6 0 R >>\n"
+            f"startxref\n{xref}\n%%EOF\n").encode()
+    return bytes(out)
