@@ -632,6 +632,14 @@ SERVERS = {
     },
 }
 
+# Free-API tools (crt.sh, OSV.dev, CISA KEV, SEC EDGAR, ransomware.live,
+# OpenSky, AISStream, WiGLE, Reddit): defined in free_api_registry.py, served
+# by the local server.
+from .free_api_registry import FREE_API_TOOLS  # noqa: E402
+
+TOOLS.update(FREE_API_TOOLS)
+SERVERS["local"]["tools"] = SERVERS["local"]["tools"] + list(FREE_API_TOOLS)
+
 
 # =============================================================================
 # ROUTING FUNCTIONS

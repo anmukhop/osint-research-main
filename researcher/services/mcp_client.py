@@ -70,6 +70,10 @@ LIVE_CONTACT_TOOLS = frozenset({
     "domain_reputation", "username_search",
 })
 
+# Free-API tools (free_api_registry.py). All passive, so stealth mode keeps them.
+from .free_api_registry import FREE_API_TOOL_NAMES  # noqa: E402
+AGENT_ALLOWED_TOOLS = AGENT_ALLOWED_TOOLS | FREE_API_TOOL_NAMES
+
 STEALTH = os.getenv("OSINT_STEALTH_MODE", "").strip().lower() == "true"
 if STEALTH:
     AGENT_ALLOWED_TOOLS = AGENT_ALLOWED_TOOLS - LIVE_CONTACT_TOOLS

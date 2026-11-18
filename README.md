@@ -151,6 +151,18 @@ These steps run the app on your own computer using the VT ARC LLM API (on the `m
    WHOISXML_API_KEY=
    SHODAN_API_KEY=
    BUILTWITH_API_KEY=
+
+   # Optional: free-API tools (keys are free; see docs/agent-tool-list.md)
+   SEC_USER_AGENT=          # "<lab or name> <contact email>"; SEC requires it
+   RANSOMWARE_LIVE_API_KEY= # PRO key; without it the personal-use v2 API is used
+   OPENSKY_CLIENT_ID=
+   OPENSKY_CLIENT_SECRET=
+   AISSTREAM_API_KEY=
+   WIGLE_API_NAME=
+   WIGLE_API_TOKEN=
+   REDDIT_CLIENT_ID=
+   REDDIT_CLIENT_SECRET=
+   REDDIT_USER_AGENT=       # e.g. python:vt-osint-research:v1.0 (by /u/<account>)
    ```
 6. **Set up the database:** `python manage.py migrate`. This creates `db.sqlite3` on first run.
    A `BrokenPipeError` traceback may appear after the prompt returns. It's harmless; press Enter.

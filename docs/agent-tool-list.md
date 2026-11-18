@@ -41,6 +41,26 @@ Credits are as of Nov 10, 2026 (WhoisXML `account_balance`, BuiltWith `whoami-ap
 | `free-api` | BuiltWith | Passive | free | Third-Party Services | Counts of technology types (e.g. "Analytics: 5"); **no product names** |
 | `trends-api` | BuiltWith | Passive | free | Third-Party Services | How widely a named technology is used |
 
+## Allowed: free-API tools (13, added Nov 13, 2026 on the `free-apis` branch)
+
+These are not counted in the totals above. Code: `researcher/services/free_api_registry.py`, which `mcp_client.py` adds to `AGENT_ALLOWED_TOOLS`. All 13 run on the local server and are **Passive**: they read a provider's database or a public broadcast feed, and none contacts the target, so stealth mode keeps them. All are free. Keys go in `.env`; without one, the tool returns a "set X in .env" error and makes no call. "Peraton use" is from `research/free-api-catalogue.md` (phd repo, #48).
+
+| Tool | Provider | Key (`.env`) | Limits | CVA category | Peraton use | Why |
+|---|---|---|---|---|---|---|
+| `crtsh_subdomains` | crt.sh | none | none published; slow (up to ~60 s) and often overloaded | Network Discovery | OK | Subdomains from certificate logs, with dates first and last seen |
+| `osv_package_vulns` | OSV.dev | none | none ("no limits") | Website Vulnerabilities | OK | Known vulns for a package and version (e.g. a JS library seen in an archived page) |
+| `kev_check` | CISA KEV | none | feed cached 6 h | Website Vulnerabilities | OK (CC0) | Is a CVE exploited in the wild, or used by ransomware |
+| `sec_company_filings` | SEC EDGAR | `SEC_USER_AGENT` (name + contact email, required by SEC) | ≤10 requests/s (code waits 0.15 s between calls) | Third-Party Services; Physical Assets (2nd: business addresses) | OK (US gov) | Company profile, addresses, former names, recent filings |
+| `sec_filing_search` | SEC EDGAR full-text search | `SEC_USER_AGENT` | same | Third-Party Services | OK (US gov) | Which filings mention a name: customers, suppliers, 8-K incidents |
+| `ransomware_victims` | ransomware.live | `RANSOMWARE_LIVE_API_KEY` (PRO; optional) | PRO: 60/min, 500,000/month. Without a key it uses free v2: 1/min, "personal use only" | Third-Party Services; Breach Data (2nd) | Ask | Was a vendor or the target listed on a leak site |
+| `opensky_airport_flights` | OpenSky Network | `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | ≤2 days per query; ~30 credits each, 4,000/day; newest data is yesterday | Physical Assets | Ask | Flights in and out of an airport on a date |
+| `opensky_aircraft_flights` | OpenSky Network | same | same | Physical Assets | Ask | One aircraft's flights, by ICAO24 address |
+| `ships_near` | AISStream | `AISSTREAM_API_KEY` | live only, no history; 3 connections per account | Physical Assets | Unverified | Ships near a waterfront site right now |
+| `wigle_wifi_search` | WiGLE | `WIGLE_API_NAME`, `WIGLE_API_TOKEN` | a few searches a day for new accounts | Physical Assets; Network Discovery (2nd) | **No** (research only) | WiFi networks seen at a location |
+| `reddit_search` | Reddit Data API | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` (+ `REDDIT_USER_AGENT`) | 100 requests/min | Brand Monitoring | Ask | Posts mentioning the company |
+| `reddit_post_comments` | Reddit Data API | same | same | Brand Monitoring | Ask | Read a post and its comments |
+| `reddit_user_activity` | Reddit Data API | same | same | Employee Public Information | Ask | An account's recent posts and comments |
+
 ## Not allowed yet
 
 | Tool(s) | Server | Cost | Why not | Allow when |
@@ -70,3 +90,17 @@ Credits are as of Nov 10, 2026 (WhoisXML `account_balance`, BuiltWith `whoami-ap
 | Breach Data | email_breach_check (+ Hudson Rock, from Jeremy) | no, until Hudson Rock |
 
 The agent's instructions name the live tools and tell it to skip them when a user asks for passive-only work. Users don't see this.
+
+### CVA coverage added by the free-API tools
+
+| CVA category | Free-API tools (main + 2nd) |
+|---|---|
+| Network Discovery | crtsh_subdomains; wigle_wifi_search (2nd) |
+| Website Vulnerabilities | osv_package_vulns, kev_check |
+| Physical Assets | opensky_airport_flights, opensky_aircraft_flights, ships_near, wigle_wifi_search; sec_company_filings (2nd) |
+| Third-Party Services | sec_company_filings, sec_filing_search, ransomware_victims |
+| Employee Public Information | reddit_user_activity |
+| Brand Monitoring | reddit_search, reddit_post_comments |
+| Breach Data | ransomware_victims (2nd) |
+
+With these, every category reaches 2+ tools (Breach Data only by counting `ransomware_victims` as its 2nd), and Physical Assets and Third-Party Services are no longer weak.

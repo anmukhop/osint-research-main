@@ -128,6 +128,13 @@ def investigate_username(username: str) -> str:
 
 Remember to present findings factually without making assumptions about the person's identity or character."""
 
+# TOOLS: Free-API tools (crt.sh, OSV.dev, CISA KEV, SEC EDGAR, ransomware.live,
+# OpenSky, AISStream, WiGLE, Reddit). Defined in free_api_tools.py.
+from free_api_tools import register_free_api_tools  # noqa: E402
+
+register_free_api_tools(mcp)
+
+
 def main():
     parser = argparse.ArgumentParser(description="OSINT MCP Server")
     parser.add_argument(
