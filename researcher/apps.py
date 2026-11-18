@@ -9,6 +9,12 @@ class ResearcherConfig(AppConfig):
     def ready(self):
         # Skip warmup for management commands like migrate, makemigrations,
         # collectstatic, shell, etc. Only warm when actually serving requests.
+        argv = os.sys.argv
+        if argv and argv[0].endswith("manage.py") and "runserver" not in argv:
+            # Management commands (collectstatic, migrate, shell, test...):
+            # don't start the MCP helpers; they'd be killed mid-write when
+            # the command exits ("Broken pipe" noise).
+            return
         if os.environ.get("RUN_MAIN") != "true" and "runserver" not in os.sys.argv:
             # Running under gunicorn or similar — warm immediately.
             pass

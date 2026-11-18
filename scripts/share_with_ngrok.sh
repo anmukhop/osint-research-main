@@ -11,6 +11,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+if [ -z "${PYTHON:-}" ] && [ -x .venv/bin/python ]; then PYTHON=.venv/bin/python; fi
 PYTHON="${PYTHON:-python3.11}"
 PORT=8000
 
@@ -19,6 +20,13 @@ PORT=8000
 if [ -z "${DJANGO_SECRET_KEY:-}" ] && ! grep -q '^DJANGO_SECRET_KEY=.' .env 2>/dev/null; then
     echo "Set DJANGO_SECRET_KEY in .env before sharing. Generate one with:"
     echo "  $PYTHON -c 'from django.core.management.utils import get_random_secret_key as g; print(g())'"
+    exit 1
+fi
+
+# Without a sign-up code, sign-up is closed while sharing. Make that a choice.
+if [ -z "${SIGNUP_CODE:-}" ] && ! grep -q '^SIGNUP_CODE=.' .env 2>/dev/null; then
+    echo "Set SIGNUP_CODE in .env before sharing (participants need it to sign up)."
+    echo "Pick any phrase, e.g. SIGNUP_CODE=blue-harbor-42"
     exit 1
 fi
 
@@ -50,6 +58,7 @@ HOST="${URL#https://}"
 # variables that are already set).
 export DEBUG=False
 export REQUIRE_LOGIN=True
+export ADMIN_LOCAL_ONLY=True
 export ALLOWED_HOSTS="localhost,127.0.0.1,$HOST"
 export CSRF_TRUSTED_ORIGINS="http://localhost:$PORT,http://127.0.0.1:$PORT,$URL"
 
@@ -61,7 +70,8 @@ DJANGO_PID=$!
 
 echo
 echo "Sharing at: $URL"
-echo "Teammates open that link, sign up, and join your team with its invite code."
+echo "Teammates open that link, sign up with the SIGNUP_CODE from .env, and join"
+echo "your team with its invite code. /admin/ works only at localhost."
 echo "You can still use http://localhost:$PORT yourself."
 echo "Server output: server.log   Tunnel output: ngrok.log"
 echo "Press Ctrl+C to stop sharing."

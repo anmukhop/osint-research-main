@@ -1,4 +1,7 @@
 import uuid
+
+from django.conf import settings
+from django.http import Http404
 from .models import Session
 
 COOKIE_NAME = "osint_session_id"
@@ -50,3 +53,22 @@ class AnonymousSessionMiddleware:
             )
 
         return response
+
+class AdminLocalOnlyMiddleware:
+    """With ADMIN_LOCAL_ONLY on, /admin/ is a 404 unless opened via localhost.
+
+    Through an ngrok tunnel the Host header is the public ngrok name, so
+    strangers with the link can't reach the admin login page.
+    """
+
+    LOCAL_HOSTS = {"localhost", "127.0.0.1"}
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if settings.ADMIN_LOCAL_ONLY and request.path.startswith("/admin"):
+            host = request.get_host().rsplit(":", 1)[0]
+            if host not in self.LOCAL_HOSTS:
+                raise Http404()
+        return self.get_response(request)

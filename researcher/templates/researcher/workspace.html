@@ -1295,7 +1295,9 @@
   });
 
   fetchNotifications();
-  setInterval(fetchNotifications, 30000);
+  // Every 60s, only while the tab is visible (each poll is an ngrok request).
+  setInterval(() => { if (!document.hidden) fetchNotifications(); }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) fetchNotifications(); });
 })();
 </script>
 </body>

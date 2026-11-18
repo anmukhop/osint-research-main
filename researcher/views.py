@@ -26,7 +26,11 @@ from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.views import LoginView
 from django.shortcuts import redirect
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django import forms
+from django.utils.crypto import constant_time_compare
+from datetime import timedelta
+from django.utils import timezone
 from django.conf import settings
 from django.contrib.auth.views import redirect_to_login
 from django.contrib import messages
@@ -224,6 +228,48 @@ def _login_required_for_search(request) -> bool:
     """True if REQUIRE_LOGIN is on and this visitor isn't logged in."""
     return settings.REQUIRE_LOGIN and not request.user.is_authenticated
 
+
+DAILY_CAP_MESSAGE = "Daily search limit reached. Ask the study team to raise it."
+
+
+def _over_daily_cap(request) -> bool:
+    """True if this logged-in, non-staff user has used up DAILY_QUERY_CAP.
+
+    Counts the user's Query rows (one per search) in the last 24 hours.
+    """
+    cap = settings.DAILY_QUERY_CAP
+    user = request.user
+    if cap <= 0 or not user.is_authenticated or user.is_staff:
+        return False
+    since = timezone.now() - timedelta(hours=24)
+    return Query.objects.filter(user=user, created_at__gte=since).count() >= cap
+
+
+def _signup_open() -> bool:
+    """Shared mode (REQUIRE_LOGIN) with no SIGNUP_CODE means sign-up is closed."""
+    return bool(settings.SIGNUP_CODE) or not settings.REQUIRE_LOGIN
+
+
+class SignupForm(UserCreationForm):
+    """UserCreationForm plus a sign-up code box when SIGNUP_CODE is set."""
+
+    signup_code = forms.CharField(
+        label="Sign-up code",
+        help_text="Given to you by the study team.",
+        widget=forms.TextInput(attrs={"autocomplete": "off"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not settings.SIGNUP_CODE:
+            del self.fields["signup_code"]
+
+    def clean_signup_code(self):
+        code = self.cleaned_data.get("signup_code", "").strip()
+        if not constant_time_compare(code, settings.SIGNUP_CODE):
+            raise forms.ValidationError("That sign-up code isn't right.")
+        return code
+
 def index(request):
     """Main page with the search form."""
     if _login_required_for_search(request):
@@ -238,14 +284,16 @@ def signup(request):
     Uses Django's built-in UserCreationForm (username + password + confirm).
     On success, auto-logs-in the new user and redirects to the search page.
     """
+    if not _signup_open():
+        return render(request, "registration/signup.html", {"signup_closed": True}, status=403)
     if request.method == "POST":
-        form = UserCreationForm(request.POST)
+        form = SignupForm(request.POST)
         if form.is_valid():
             user = form.save()
             login(request, user)
             return redirect("index")
     else:
-        form = UserCreationForm()
+        form = SignupForm()
     return render(request, "registration/signup.html", {"form": form})
 
 def active_team_context(request):
@@ -592,6 +640,8 @@ def parse_query(request):
     """
     if _login_required_for_search(request):
         return JsonResponse({"error": "Please log in to search."}, status=401)
+    if _over_daily_cap(request):
+        return JsonResponse({"error": DAILY_CAP_MESSAGE}, status=429)
     try:
         data = json.loads(request.body)
         user_query = data.get("query", "").strip()
@@ -739,6 +789,12 @@ def search_stream(request):
         def error_stream():
             yield f"event: error\ndata: {json.dumps({'error': 'Please log in to search.'})}\n\n"
         return StreamingHttpResponse(error_stream(), content_type="text/event-stream", status=401)
+
+    if _over_daily_cap(request):
+        def error_stream():
+            yield f"event: error\ndata: {json.dumps({'error': DAILY_CAP_MESSAGE})}\n\n"
+        # Status 200 so the browser's EventSource delivers the message.
+        return StreamingHttpResponse(error_stream(), content_type="text/event-stream")
 
     user_query = request.GET.get("query", "").strip()
 
@@ -1014,6 +1070,7 @@ def capabilities(request):
 
 
 @login_required
+@user_passes_test(lambda u: u.is_staff)
 def benchmark(request):
     """Render a benchmark table whose rows run through the backend agent."""
     return render(request, "researcher/benchmark.html", {
@@ -1022,6 +1079,7 @@ def benchmark(request):
 
 
 @login_required
+@user_passes_test(lambda u: u.is_staff)
 @require_http_methods(["POST"])
 def benchmark_run(request):
     """Run one benchmark query through the shared MCP runtime."""
