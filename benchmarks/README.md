@@ -5,11 +5,11 @@ A set of plain "do X" requests for the platform's AI agent. It covers every tool
 | Part | Items | What it checks |
 |---|---|---|
 | Single | 27 | One test per allowed tool, including the 3 account tools (credit checks, Shodan filters) |
-| Pair | 195 | Every ordered pair (A → B) where B can take something A returns |
+| Pair | 200 | Every ordered pair (A → B) where B can take something A returns |
 | Triple | 30 | Realistic three-step analyst paths, at least one in each of the seven CVA categories |
-| **Total** | **252** | 13 of them need a one-line code change first (see below) |
+| **Total** | **257** | 13 of them need a one-line code change first (see below) |
 
-The other 357 of the 552 possible ordered pairs (24 investigation tools × 23) are listed in the JSON, each with the reason it doesn't chain.
+The other 352 of the 552 possible ordered pairs (24 investigation tools × 23) are listed in the JSON, each with the reason it doesn't chain.
 
 Files:
 - `benchmark-v2.json`: the items. Each has:
@@ -23,7 +23,7 @@ Files:
 ## Targets
 
 All lookups are passive, or one harmless visit by WhoisXML.
-- **Tidegate Solutions:** `tidegatesolutions.com`, server `100.48.141.159`, subdomains `www`/`pay`, registrant `sreyes@tidegatesolutions.com`, username `sreyes`. A fictional CTF company. SecretCorp is left out because it's the pilot study's question.
+- **Tidegate Solutions:** `tidegatesolutions.com`, server `100.48.141.159`, subdomains `www`/`pay` (`pay` points to GoDaddy's payment-link service), registrant `sreyes@tidegatesolutions.com`, username `sreyes`. A fictional CTF company. SecretCorp is left out because it's the pilot study's question.
 - **Tidegate's own vendors, as its records name them:** Microsoft (mail), GoDaddy (nameservers, payment page) and Amazon (hosting). Looking up who a company depends on is what the Third-Party Services category is about.
 - **`test@example.com`:** a reserved test address, not a person, used for breach chains. XposedOrNot lists it in 216 breaches.
 - **Global lookups with no target:** product and CVE databases, and Shodan counts.
@@ -40,7 +40,7 @@ Every "A returns X" claim carries evidence in `links`:
 | Seen in a free (or 1-credit) probe on Nov 11 | 60 |
 | Tool's own description only | 36 |
 | Tool's code or XposedOrNot's raw data | 22 |
-| Certificate log (crt.sh) | 5 |
+| Certificate log (crt.sh) | 10 |
 
 Some returns were found on Nov 11 and weren't used in the first draft:
 - `shodan_count` breaks results down by organization, ASN, product and domain, and it's free.
@@ -52,10 +52,13 @@ Some returns were found on Nov 11 and weren't used in the first draft:
 - `trends-api` gives the product's homepage.
 - `whois` lists nameservers.
 
-**Why the other 357 pairs don't chain:**
+**Why the other 352 pairs don't chain:**
 - **92: four tools are dead ends.** `threat_intelligence` returns only the indicator you asked about. `domain_reputation` returns a score and warnings, `categorization` returns content categories, and `free-api` returns category counts with no product names.
 - **260: type mismatches.** A returns nothing B accepts. For example, `cves_by_product` returns CVE IDs, and only `cve_lookup` takes a CVE. Vulnerability tools speak software, CPE and CVE; network tools speak IP and hostname; the two meet only through `ip_lookup`, `shodan_search` and `shodan_count`.
-- **5: `ssl_certificates`.** Tidegate's certificates cover only `pay` and `www.pay`, and `www.pay` has no DNS record, so there's no site to check after it.
+
+**Hostnames and domains.** When a later step asks for "that hostname's domain" (WHOIS, Shodan's subdomain list), the expected argument is the domain, not the full hostname: `ec2-100-48-141-159.compute-1.amazonaws.com` → `amazonaws.com`, the MX host → `outlook.com`, `ns51.domaincontrol.com` → `domaincontrol.com`, `httpd.apache.org` → `apache.org`, `www.tidegatesolutions.com` → `tidegatesolutions.com`.
+
+**`ssl_certificates` hands on `pay`.** The live certificate on `pay.tidegatesolutions.com` (Go Daddy, valid to Dec 4, 2026) names `pay` and `www.pay`. `www.pay` has no DNS record, so pairs take the name the certificate was issued for, `pay.tidegatesolutions.com`, which resolves. Until Nov 13, 2026 the pairs used `www.pay`, which left five items with nothing to find and excluded five others.
 
 ## The code change (13 items)
 
@@ -67,17 +70,20 @@ Tools that aren't built or allowed yet: the GDELT news-tone tool, Hudson Rock, t
 
 ## Before running it
 
-- **Tidegate's domain registration expires Nov 23–24, 2026** (WHOIS, Nov 5 run). If it isn't renewed, most items break.
+- **Tidegate's domain was renewed on Nov 12, 2026** and now expires Nov 23–24, 2027 (registry and registrar RDAP, checked Nov 13). Item 1's answer is the 2027 date.
+- **The `pay` certificate expires Dec 4, 2026.** If the run is later, re-check the `ssl_certificates` items first; a renewed certificate is fine if it still names `pay.tidegatesolutions.com`.
 - **Credits.** The JSON gives expected calls per tool. The tight ones:
   - `vpn_proxy_detection` is expected about 10 times and has 7 credits.
   - `email_verification` and `disposable_email_check` are expected about 29 times together and share 93 credits.
   - WHOIS and DNS lookups are expected about 40 times each.
+  - `ssl_certificates` is expected 23 times.
 
   Set per-product limits as the Nov 5 runner did, or run in batches.
 - **Scope guard.** The Nov 5 runner allowed only `tidegatesolutions.com` and `100.48.141.159`. This set also needs:
   - the vendors above;
+  - `pay.tidegatesolutions.com` (GoDaddy's shared payment-link servers; reputation, category and BuiltWith answers describe that service);
   - `test@example.com` and the breached-company domains it leads to;
-  - whatever sites `username_search` finds;
+  - whatever sites `username_search` finds (for `sreyes` these are unrelated real people, not the fictional registrant; kept on purpose, Nov 13, 2026);
   - global Shodan counts.
 - **Live checks.** `email_verification`, `categorization` and `domain_reputation` make one contact with a vendor or social site (an SMTP check or one homepage visit). This is allowed by default (`docs/agent-tool-list.md`).
 - Argument values come from earlier runs. `<...>` means the value depends on an earlier step, and third-step values are always "from step 2".

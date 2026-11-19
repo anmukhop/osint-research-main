@@ -1,7 +1,8 @@
 {
   "description": "OSINT Research Platform - Benchmark v2 (every agent tool, every chaining pair, three-tool chains)",
-  "version": "2.1",
+  "version": "2.2",
   "created": "2026-11-11",
+  "updated": "2026-11-13",
   "targets": {
     "main": {
       "domain": "tidegatesolutions.com",
@@ -16,9 +17,9 @@
   "notes": "Primary metric: did the agent call every tool in expected_tools. Later steps take their input from the step before (input_from_previous = link type; links[].evidence = where we saw the tool return that value). Argument values are expected from earlier runs; '<...>' means they depend on the earlier result. Items with needs_code_change only work after that change.",
   "counts": {
     "single": 27,
-    "pair": 195,
+    "pair": 200,
     "triple": 30,
-    "excluded_pairs": 357,
+    "excluded_pairs": 352,
     "needs_code_change": 13
   },
   "tests": [
@@ -649,7 +650,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "ns51.domaincontrol.com"
+            "domain": "domaincontrol.com"
           },
           "input_from_previous": "HOST"
         }
@@ -1126,7 +1127,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "tidegatesolutions-com.mail.protection.outlook.com"
+            "domain": "outlook.com"
           },
           "input_from_previous": "HOST"
         }
@@ -1200,7 +1201,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "tidegatesolutions-com.mail.protection.outlook.com"
+            "domain": "outlook.com"
           },
           "input_from_previous": "HOST"
         }
@@ -1987,7 +1988,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "www.tidegatesolutions.com"
+            "domain": "tidegatesolutions.com"
           },
           "input_from_previous": "HOST"
         }
@@ -2521,7 +2522,7 @@
     {
       "id": 81,
       "kind": "pair",
-      "query": "Read the SSL certificate for pay.tidegatesolutions.com and take the other hostname it covers. Then look up the WHOIS record for that hostname's domain.",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then look up the WHOIS record for that hostname's domain.",
       "expected_tools": [
         "ssl_certificates",
         "whois"
@@ -2538,7 +2539,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "www.pay.tidegatesolutions.com"
+            "domain": "tidegatesolutions.com"
           },
           "input_from_previous": "HOST"
         }
@@ -2550,14 +2551,14 @@
         {
           "from": "ssl_certificates",
           "type": "HOST",
-          "evidence": "certificate log (crt.sh) on Nov 11, 2026"
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
         }
       ]
     },
     {
       "id": 82,
       "kind": "pair",
-      "query": "Read the SSL certificate for pay.tidegatesolutions.com and take the other hostname it covers. Then use WhoisXML's DNS lookup to get that hostname's DNS records.",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
         "ssl_certificates",
         "dns_lookup"
@@ -2574,7 +2575,7 @@
           "tool": "dns_lookup",
           "server": "whoisxml",
           "args": {
-            "domain_name": "www.pay.tidegatesolutions.com"
+            "domain_name": "pay.tidegatesolutions.com"
           },
           "input_from_previous": "HOST"
         }
@@ -2586,14 +2587,52 @@
         {
           "from": "ssl_certificates",
           "type": "HOST",
-          "evidence": "certificate log (crt.sh) on Nov 11, 2026"
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
         }
       ]
     },
     {
       "id": 83,
       "kind": "pair",
-      "query": "Read the SSL certificate for pay.tidegatesolutions.com and take the other hostname it covers. Then list the subdomains Shodan knows for that hostname's domain.",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then resolve that hostname to an IP address with Shodan's DNS lookup.",
+      "expected_tools": [
+        "ssl_certificates",
+        "shodan_dns_lookup"
+      ],
+      "steps": [
+        {
+          "tool": "ssl_certificates",
+          "server": "whoisxml",
+          "args": {
+            "domain": "pay.tidegatesolutions.com"
+          }
+        },
+        {
+          "tool": "shodan_dns_lookup",
+          "server": "shodan",
+          "args": {
+            "hostnames": [
+              "pay.tidegatesolutions.com"
+            ]
+          },
+          "input_from_previous": "HOST"
+        }
+      ],
+      "cva_categories": [
+        "Network Discovery"
+      ],
+      "links": [
+        {
+          "from": "ssl_certificates",
+          "type": "HOST",
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
+        }
+      ]
+    },
+    {
+      "id": 84,
+      "kind": "pair",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then list the subdomains Shodan knows for that hostname's domain.",
       "expected_tools": [
         "ssl_certificates",
         "shodan_domain_info"
@@ -2610,7 +2649,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "www.pay.tidegatesolutions.com"
+            "domain": "tidegatesolutions.com"
           },
           "input_from_previous": "HOST"
         }
@@ -2622,14 +2661,51 @@
         {
           "from": "ssl_certificates",
           "type": "HOST",
-          "evidence": "certificate log (crt.sh) on Nov 11, 2026"
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
         }
       ]
     },
     {
-      "id": 84,
+      "id": 85,
       "kind": "pair",
-      "query": "Read the SSL certificate for pay.tidegatesolutions.com and take the other hostname it covers. Then check that hostname against malware, phishing and spam feeds.",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then find where that hostname's server is physically located.",
+      "expected_tools": [
+        "ssl_certificates",
+        "ipgeolocation"
+      ],
+      "steps": [
+        {
+          "tool": "ssl_certificates",
+          "server": "whoisxml",
+          "args": {
+            "domain": "pay.tidegatesolutions.com"
+          }
+        },
+        {
+          "tool": "ipgeolocation",
+          "server": "whoisxml",
+          "args": {
+            "domain_name": "pay.tidegatesolutions.com"
+          },
+          "input_from_previous": "HOST"
+        }
+      ],
+      "cva_categories": [
+        "Network Discovery",
+        "Physical Assets"
+      ],
+      "links": [
+        {
+          "from": "ssl_certificates",
+          "type": "HOST",
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
+        }
+      ]
+    },
+    {
+      "id": 86,
+      "kind": "pair",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then check that hostname against malware, phishing and spam feeds.",
       "expected_tools": [
         "ssl_certificates",
         "threat_intelligence"
@@ -2646,7 +2722,7 @@
           "tool": "threat_intelligence",
           "server": "whoisxml",
           "args": {
-            "search_term": "www.pay.tidegatesolutions.com"
+            "search_term": "pay.tidegatesolutions.com"
           },
           "input_from_previous": "HOST"
         }
@@ -2659,14 +2735,125 @@
         {
           "from": "ssl_certificates",
           "type": "HOST",
-          "evidence": "certificate log (crt.sh) on Nov 11, 2026"
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
         }
       ]
     },
     {
-      "id": 85,
+      "id": 87,
       "kind": "pair",
-      "query": "Read the SSL certificate for pay.tidegatesolutions.com and take the other hostname it covers. Then count how many hosts in Shodan have that hostname.",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then get that hostname's domain reputation score.",
+      "expected_tools": [
+        "ssl_certificates",
+        "domain_reputation"
+      ],
+      "steps": [
+        {
+          "tool": "ssl_certificates",
+          "server": "whoisxml",
+          "args": {
+            "domain": "pay.tidegatesolutions.com"
+          }
+        },
+        {
+          "tool": "domain_reputation",
+          "server": "whoisxml",
+          "args": {
+            "domain_name": "pay.tidegatesolutions.com"
+          },
+          "input_from_previous": "HOST"
+        }
+      ],
+      "cva_categories": [
+        "Network Discovery",
+        "Website Vulnerabilities"
+      ],
+      "links": [
+        {
+          "from": "ssl_certificates",
+          "type": "HOST",
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "kind": "pair",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then give the content category of that hostname's website.",
+      "expected_tools": [
+        "ssl_certificates",
+        "categorization"
+      ],
+      "steps": [
+        {
+          "tool": "ssl_certificates",
+          "server": "whoisxml",
+          "args": {
+            "domain": "pay.tidegatesolutions.com"
+          }
+        },
+        {
+          "tool": "categorization",
+          "server": "whoisxml",
+          "args": {
+            "domain": "pay.tidegatesolutions.com"
+          },
+          "input_from_previous": "HOST"
+        }
+      ],
+      "cva_categories": [
+        "Brand Monitoring",
+        "Network Discovery"
+      ],
+      "links": [
+        {
+          "from": "ssl_certificates",
+          "type": "HOST",
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
+        }
+      ]
+    },
+    {
+      "id": 89,
+      "kind": "pair",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then use BuiltWith's free lookup to count the technology types on that hostname.",
+      "expected_tools": [
+        "ssl_certificates",
+        "free-api"
+      ],
+      "steps": [
+        {
+          "tool": "ssl_certificates",
+          "server": "whoisxml",
+          "args": {
+            "domain": "pay.tidegatesolutions.com"
+          }
+        },
+        {
+          "tool": "free-api",
+          "server": "builtwith",
+          "args": {
+            "lookup": "pay.tidegatesolutions.com"
+          },
+          "input_from_previous": "HOST"
+        }
+      ],
+      "cva_categories": [
+        "Network Discovery",
+        "Third-Party Services"
+      ],
+      "links": [
+        {
+          "from": "ssl_certificates",
+          "type": "HOST",
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "kind": "pair",
+      "query": "Read the SSL certificate for pay.tidegatesolutions.com and note the hostname it was issued for. Then count how many hosts in Shodan have that hostname.",
       "expected_tools": [
         "ssl_certificates",
         "shodan_count"
@@ -2683,7 +2870,7 @@
           "tool": "shodan_count",
           "server": "shodan",
           "args": {
-            "query": "hostname:www.pay.tidegatesolutions.com"
+            "query": "hostname:pay.tidegatesolutions.com"
           },
           "input_from_previous": "HOST"
         }
@@ -2695,12 +2882,12 @@
         {
           "from": "ssl_certificates",
           "type": "HOST",
-          "evidence": "certificate log (crt.sh) on Nov 11, 2026"
+          "evidence": "certificate log (crt.sh) on Nov 11 and 13, 2026"
         }
       ]
     },
     {
-      "id": 86,
+      "id": 91,
       "kind": "pair",
       "query": "Geolocate the domain tidegatesolutions.com and note the IP address it reports. Then find who owns the IP range that contains that IP address.",
       "expected_tools": [
@@ -2737,7 +2924,7 @@
       ]
     },
     {
-      "id": 87,
+      "id": 92,
       "kind": "pair",
       "query": "Geolocate the domain tidegatesolutions.com and note the IP address it reports. Then check whether that IP address is a VPN, proxy, Tor or hosting address.",
       "expected_tools": [
@@ -2774,7 +2961,7 @@
       ]
     },
     {
-      "id": 88,
+      "id": 93,
       "kind": "pair",
       "query": "Geolocate the domain tidegatesolutions.com and note the IP address it reports. Then check that IP address against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -2811,7 +2998,7 @@
       ]
     },
     {
-      "id": 89,
+      "id": 94,
       "kind": "pair",
       "query": "Geolocate the domain tidegatesolutions.com and note the IP address it reports. Then look that IP address up in Shodan for open ports and software.",
       "expected_tools": [
@@ -2848,7 +3035,7 @@
       ]
     },
     {
-      "id": 90,
+      "id": 95,
       "kind": "pair",
       "query": "Geolocate the domain tidegatesolutions.com and note the IP address it reports. Then search Shodan for that IP address (net: filter) and list what it shows.",
       "expected_tools": [
@@ -2885,7 +3072,7 @@
       ]
     },
     {
-      "id": 91,
+      "id": 96,
       "kind": "pair",
       "query": "Geolocate the domain tidegatesolutions.com and note the IP address it reports. Then count Shodan's results for that IP address, broken down by port.",
       "expected_tools": [
@@ -2923,7 +3110,7 @@
       ]
     },
     {
-      "id": 92,
+      "id": 97,
       "kind": "pair",
       "query": "Geolocate the domain tidegatesolutions.com and note the IP address it reports. Then find the hostname that IP address reverse-resolves to.",
       "expected_tools": [
@@ -2962,7 +3149,7 @@
       ]
     },
     {
-      "id": 93,
+      "id": 98,
       "kind": "pair",
       "query": "Find the network block that contains 100.48.141.159 and note its range. Then check that network range against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -2999,7 +3186,7 @@
       ]
     },
     {
-      "id": 94,
+      "id": 99,
       "kind": "pair",
       "query": "Find the network block that contains 100.48.141.159 and note its ASN. Then search Shodan for hosts on that ASN with 'Tidegate Solutions' in their page title.",
       "expected_tools": [
@@ -3035,7 +3222,7 @@
       ]
     },
     {
-      "id": 95,
+      "id": 100,
       "kind": "pair",
       "query": "Find the network block that contains 100.48.141.159 and note its ASN. Then count how many hosts Shodan sees on that ASN.",
       "expected_tools": [
@@ -3071,7 +3258,7 @@
       ]
     },
     {
-      "id": 96,
+      "id": 101,
       "kind": "pair",
       "query": "Check whether 100.48.141.159 is a VPN, proxy or hosting address, and note its ASN. Then list the network blocks registered to that ASN (first 10).",
       "expected_tools": [
@@ -3108,7 +3295,7 @@
       ]
     },
     {
-      "id": 97,
+      "id": 102,
       "kind": "pair",
       "query": "Check whether 100.48.141.159 is a VPN, proxy or hosting address, and note its ASN. Then search Shodan for hosts on that ASN with 'Tidegate Solutions' in their page title.",
       "expected_tools": [
@@ -3144,7 +3331,7 @@
       ]
     },
     {
-      "id": 98,
+      "id": 103,
       "kind": "pair",
       "query": "Check whether 100.48.141.159 is a VPN, proxy or hosting address, and note its ASN. Then count how many hosts Shodan sees on that ASN.",
       "expected_tools": [
@@ -3180,7 +3367,7 @@
       ]
     },
     {
-      "id": 99,
+      "id": 104,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then look up the WHOIS record for that hostname's domain.",
       "expected_tools": [
@@ -3199,7 +3386,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "httpd.apache.org"
+            "domain": "apache.org"
           },
           "input_from_previous": "HOST"
         }
@@ -3217,7 +3404,7 @@
       ]
     },
     {
-      "id": 100,
+      "id": 105,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -3254,7 +3441,7 @@
       ]
     },
     {
-      "id": 101,
+      "id": 106,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then resolve that hostname to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -3293,7 +3480,7 @@
       ]
     },
     {
-      "id": 102,
+      "id": 107,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then list the subdomains Shodan knows for that hostname's domain.",
       "expected_tools": [
@@ -3312,7 +3499,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "httpd.apache.org"
+            "domain": "apache.org"
           },
           "input_from_previous": "HOST"
         }
@@ -3330,7 +3517,7 @@
       ]
     },
     {
-      "id": 103,
+      "id": 108,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then show that hostname's SSL certificate.",
       "expected_tools": [
@@ -3367,7 +3554,7 @@
       ]
     },
     {
-      "id": 104,
+      "id": 109,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then find where that hostname's server is physically located.",
       "expected_tools": [
@@ -3404,7 +3591,7 @@
       ]
     },
     {
-      "id": 105,
+      "id": 110,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then check that hostname against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -3441,7 +3628,7 @@
       ]
     },
     {
-      "id": 106,
+      "id": 111,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then get that hostname's domain reputation score.",
       "expected_tools": [
@@ -3478,7 +3665,7 @@
       ]
     },
     {
-      "id": 107,
+      "id": 112,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then give the content category of that hostname's website.",
       "expected_tools": [
@@ -3515,7 +3702,7 @@
       ]
     },
     {
-      "id": 108,
+      "id": 113,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then use BuiltWith's free lookup to count the technology types on that hostname.",
       "expected_tools": [
@@ -3551,7 +3738,7 @@
       ]
     },
     {
-      "id": 109,
+      "id": 114,
       "kind": "pair",
       "query": "Look up Apache on BuiltWith trends and take the hostname of its official website link. Then count how many hosts in Shodan have that hostname.",
       "expected_tools": [
@@ -3588,7 +3775,7 @@
       ]
     },
     {
-      "id": 110,
+      "id": 115,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then look up the WHOIS record for that hostname's domain.",
       "expected_tools": [
@@ -3607,7 +3794,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "ec2-100-48-141-159.compute-1.amazonaws.com"
+            "domain": "amazonaws.com"
           },
           "input_from_previous": "HOST"
         }
@@ -3625,7 +3812,7 @@
       ]
     },
     {
-      "id": 111,
+      "id": 116,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -3662,7 +3849,7 @@
       ]
     },
     {
-      "id": 112,
+      "id": 117,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then resolve that hostname to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -3701,7 +3888,7 @@
       ]
     },
     {
-      "id": 113,
+      "id": 118,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then list the subdomains Shodan knows for that hostname's domain.",
       "expected_tools": [
@@ -3720,7 +3907,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "ec2-100-48-141-159.compute-1.amazonaws.com"
+            "domain": "amazonaws.com"
           },
           "input_from_previous": "HOST"
         }
@@ -3738,7 +3925,7 @@
       ]
     },
     {
-      "id": 114,
+      "id": 119,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then show that hostname's SSL certificate.",
       "expected_tools": [
@@ -3775,7 +3962,7 @@
       ]
     },
     {
-      "id": 115,
+      "id": 120,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then find where that hostname's server is physically located.",
       "expected_tools": [
@@ -3812,7 +3999,7 @@
       ]
     },
     {
-      "id": 116,
+      "id": 121,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its ASN. Then list the network blocks registered to that ASN (first 10).",
       "expected_tools": [
@@ -3850,7 +4037,7 @@
       ]
     },
     {
-      "id": 117,
+      "id": 122,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then check that hostname against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -3886,7 +4073,7 @@
       ]
     },
     {
-      "id": 118,
+      "id": 123,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then get that hostname's domain reputation score.",
       "expected_tools": [
@@ -3922,7 +4109,7 @@
       ]
     },
     {
-      "id": 119,
+      "id": 124,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then give the content category of that hostname's website.",
       "expected_tools": [
@@ -3959,7 +4146,7 @@
       ]
     },
     {
-      "id": 120,
+      "id": 125,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then use BuiltWith's free lookup to count the technology types on that hostname.",
       "expected_tools": [
@@ -3996,7 +4183,7 @@
       ]
     },
     {
-      "id": 121,
+      "id": 126,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and find the web server software and version it runs. Then check on BuiltWith trends how widely that software is used.",
       "expected_tools": [
@@ -4033,7 +4220,7 @@
       ]
     },
     {
-      "id": 122,
+      "id": 127,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its ASN. Then search Shodan for hosts on that ASN with 'Tidegate Solutions' in their page title.",
       "expected_tools": [
@@ -4070,7 +4257,7 @@
       ]
     },
     {
-      "id": 123,
+      "id": 128,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and note its hostname. Then count how many hosts in Shodan have that hostname.",
       "expected_tools": [
@@ -4107,7 +4294,7 @@
       ]
     },
     {
-      "id": 124,
+      "id": 129,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and pick one of the CVEs it lists. Then give that CVE's severity and whether it is on CISA's Known Exploited Vulnerabilities list.",
       "expected_tools": [
@@ -4143,7 +4330,7 @@
       ]
     },
     {
-      "id": 125,
+      "id": 130,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and find the web server software and version it runs. Then find the official CPE identifier for that software.",
       "expected_tools": [
@@ -4179,7 +4366,7 @@
       ]
     },
     {
-      "id": 126,
+      "id": 131,
       "kind": "pair",
       "query": "Look up 100.48.141.159 in Shodan and find the web server software and version it runs. Then list the known CVEs for that software.",
       "expected_tools": [
@@ -4215,7 +4402,7 @@
       ]
     },
     {
-      "id": 127,
+      "id": 132,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the result's hostname. Then look up the WHOIS record for that hostname's domain.",
       "expected_tools": [
@@ -4234,7 +4421,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "ec2-100-48-141-159.compute-1.amazonaws.com"
+            "domain": "amazonaws.com"
           },
           "input_from_previous": "HOST"
         }
@@ -4251,7 +4438,7 @@
       ]
     },
     {
-      "id": 128,
+      "id": 133,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the result's hostname. Then use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -4287,7 +4474,7 @@
       ]
     },
     {
-      "id": 129,
+      "id": 134,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the result's hostname. Then resolve that hostname to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -4325,7 +4512,7 @@
       ]
     },
     {
-      "id": 130,
+      "id": 135,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the result's hostname. Then list the subdomains Shodan knows for that hostname's domain.",
       "expected_tools": [
@@ -4344,7 +4531,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "ec2-100-48-141-159.compute-1.amazonaws.com"
+            "domain": "amazonaws.com"
           },
           "input_from_previous": "HOST"
         }
@@ -4361,7 +4548,7 @@
       ]
     },
     {
-      "id": 131,
+      "id": 136,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the result's hostname. Then show that hostname's SSL certificate.",
       "expected_tools": [
@@ -4397,7 +4584,7 @@
       ]
     },
     {
-      "id": 132,
+      "id": 137,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the IP address of the result. Then find where that IP address is physically located.",
       "expected_tools": [
@@ -4434,7 +4621,7 @@
       ]
     },
     {
-      "id": 133,
+      "id": 138,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the IP address of the result. Then find who owns the IP range that contains that IP address.",
       "expected_tools": [
@@ -4470,7 +4657,7 @@
       ]
     },
     {
-      "id": 134,
+      "id": 139,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the IP address of the result. Then check whether that IP address is a VPN, proxy, Tor or hosting address.",
       "expected_tools": [
@@ -4506,7 +4693,7 @@
       ]
     },
     {
-      "id": 135,
+      "id": 140,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the IP address of the result. Then check that IP address against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -4543,7 +4730,7 @@
       ]
     },
     {
-      "id": 136,
+      "id": 141,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the result's hostname. Then get that hostname's domain reputation score.",
       "expected_tools": [
@@ -4580,7 +4767,7 @@
       ]
     },
     {
-      "id": 137,
+      "id": 142,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the result's hostname. Then give the content category of that hostname's website.",
       "expected_tools": [
@@ -4617,7 +4804,7 @@
       ]
     },
     {
-      "id": 138,
+      "id": 143,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the result's hostname. Then use BuiltWith's free lookup to count the technology types on that hostname.",
       "expected_tools": [
@@ -4654,7 +4841,7 @@
       ]
     },
     {
-      "id": 139,
+      "id": 144,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the web server software and version. Then check on BuiltWith trends how widely that software is used.",
       "expected_tools": [
@@ -4691,7 +4878,7 @@
       ]
     },
     {
-      "id": 140,
+      "id": 145,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the IP address of the result. Then look that IP address up in Shodan for open ports and software.",
       "expected_tools": [
@@ -4728,7 +4915,7 @@
       ]
     },
     {
-      "id": 141,
+      "id": 146,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the IP address of the result. Then count Shodan's results for that IP address, broken down by port.",
       "expected_tools": [
@@ -4765,7 +4952,7 @@
       ]
     },
     {
-      "id": 142,
+      "id": 147,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the IP address of the result. Then find the hostname that IP address reverse-resolves to.",
       "expected_tools": [
@@ -4803,7 +4990,7 @@
       ]
     },
     {
-      "id": 143,
+      "id": 148,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and pick one CVE listed for the result. Then give that CVE's severity and whether it is on CISA's Known Exploited Vulnerabilities list.",
       "expected_tools": [
@@ -4840,7 +5027,7 @@
       ]
     },
     {
-      "id": 144,
+      "id": 149,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the web server software and version. Then find the official CPE identifier for that software.",
       "expected_tools": [
@@ -4877,7 +5064,7 @@
       ]
     },
     {
-      "id": 145,
+      "id": 150,
       "kind": "pair",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the web server software and version. Then list the known CVEs for that software.",
       "expected_tools": [
@@ -4914,7 +5101,7 @@
       ]
     },
     {
-      "id": 146,
+      "id": 151,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then look up the WHOIS record for that domain.",
       "expected_tools": [
@@ -4951,7 +5138,7 @@
       ]
     },
     {
-      "id": 147,
+      "id": 152,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then use WhoisXML's DNS lookup to get that domain's DNS records.",
       "expected_tools": [
@@ -4988,7 +5175,7 @@
       ]
     },
     {
-      "id": 148,
+      "id": 153,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then resolve that domain to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -5027,9 +5214,9 @@
       ]
     },
     {
-      "id": 149,
+      "id": 154,
       "kind": "pair",
-      "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then list the subdomains Shodan knows for that domain's domain.",
+      "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then list the subdomains Shodan knows for that domain.",
       "expected_tools": [
         "shodan_count",
         "shodan_domain_info"
@@ -5064,7 +5251,7 @@
       ]
     },
     {
-      "id": 150,
+      "id": 155,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then show that domain's SSL certificate.",
       "expected_tools": [
@@ -5101,7 +5288,7 @@
       ]
     },
     {
-      "id": 151,
+      "id": 156,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then find where that domain's server is physically located.",
       "expected_tools": [
@@ -5139,7 +5326,7 @@
       ]
     },
     {
-      "id": 152,
+      "id": 157,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by ASN, and note the top one. Then list the network blocks registered to that ASN (first 10).",
       "expected_tools": [
@@ -5177,7 +5364,7 @@
       ]
     },
     {
-      "id": 153,
+      "id": 158,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then check that domain against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -5215,7 +5402,7 @@
       ]
     },
     {
-      "id": 154,
+      "id": 159,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then get that domain's domain reputation score.",
       "expected_tools": [
@@ -5253,7 +5440,7 @@
       ]
     },
     {
-      "id": 155,
+      "id": 160,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then give the content category of that domain's website.",
       "expected_tools": [
@@ -5291,7 +5478,7 @@
       ]
     },
     {
-      "id": 156,
+      "id": 161,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then use BuiltWith's free lookup to count the technology types on that domain.",
       "expected_tools": [
@@ -5329,7 +5516,7 @@
       ]
     },
     {
-      "id": 157,
+      "id": 162,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by product, and note the top one. Then check on BuiltWith trends how widely that software is used.",
       "expected_tools": [
@@ -5367,7 +5554,7 @@
       ]
     },
     {
-      "id": 158,
+      "id": 163,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by ASN, and note the top one. Then search Shodan for hosts on that ASN with 'Tidegate Solutions' in their page title.",
       "expected_tools": [
@@ -5404,7 +5591,7 @@
       ]
     },
     {
-      "id": 159,
+      "id": 164,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by product, and note the top one. Then find the official CPE identifier for that software.",
       "expected_tools": [
@@ -5442,7 +5629,7 @@
       ]
     },
     {
-      "id": 160,
+      "id": 165,
       "kind": "pair",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by product, and note the top one. Then list the known CVEs for that software.",
       "expected_tools": [
@@ -5480,7 +5667,7 @@
       ]
     },
     {
-      "id": 161,
+      "id": 166,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then look up the WHOIS record for that hostname's domain.",
       "expected_tools": [
@@ -5501,7 +5688,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "ec2-100-48-141-159.compute-1.amazonaws.com"
+            "domain": "amazonaws.com"
           },
           "input_from_previous": "HOST"
         }
@@ -5518,7 +5705,7 @@
       ]
     },
     {
-      "id": 162,
+      "id": 167,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -5556,7 +5743,7 @@
       ]
     },
     {
-      "id": 163,
+      "id": 168,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then resolve that hostname to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -5596,7 +5783,7 @@
       ]
     },
     {
-      "id": 164,
+      "id": 169,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then list the subdomains Shodan knows for that hostname's domain.",
       "expected_tools": [
@@ -5617,7 +5804,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "ec2-100-48-141-159.compute-1.amazonaws.com"
+            "domain": "amazonaws.com"
           },
           "input_from_previous": "HOST"
         }
@@ -5634,7 +5821,7 @@
       ]
     },
     {
-      "id": 165,
+      "id": 170,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then show that hostname's SSL certificate.",
       "expected_tools": [
@@ -5672,7 +5859,7 @@
       ]
     },
     {
-      "id": 166,
+      "id": 171,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then find where that hostname's server is physically located.",
       "expected_tools": [
@@ -5711,7 +5898,7 @@
       ]
     },
     {
-      "id": 167,
+      "id": 172,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then check that hostname against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -5750,7 +5937,7 @@
       ]
     },
     {
-      "id": 168,
+      "id": 173,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then get that hostname's domain reputation score.",
       "expected_tools": [
@@ -5789,7 +5976,7 @@
       ]
     },
     {
-      "id": 169,
+      "id": 174,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then give the content category of that hostname's website.",
       "expected_tools": [
@@ -5828,7 +6015,7 @@
       ]
     },
     {
-      "id": 170,
+      "id": 175,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then use BuiltWith's free lookup to count the technology types on that hostname.",
       "expected_tools": [
@@ -5867,7 +6054,7 @@
       ]
     },
     {
-      "id": 171,
+      "id": 176,
       "kind": "pair",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then count how many hosts in Shodan have that hostname.",
       "expected_tools": [
@@ -5905,7 +6092,7 @@
       ]
     },
     {
-      "id": 172,
+      "id": 177,
       "kind": "pair",
       "query": "Look up CVE-2025-55753 and note the name of the software it affects. Then check on BuiltWith trends how widely that software is used.",
       "expected_tools": [
@@ -5942,7 +6129,7 @@
       ]
     },
     {
-      "id": 173,
+      "id": 178,
       "kind": "pair",
       "query": "Look up CVE-2025-55753 and note the name of the software it affects. Then count how many hosts on the internet run that same software.",
       "expected_tools": [
@@ -5979,7 +6166,7 @@
       ]
     },
     {
-      "id": 174,
+      "id": 179,
       "kind": "pair",
       "query": "Look up CVE-2025-55753 and note the name of the software it affects. Then find the official CPE identifier for that software.",
       "expected_tools": [
@@ -6015,7 +6202,7 @@
       ]
     },
     {
-      "id": 175,
+      "id": 180,
       "kind": "pair",
       "query": "Look up CVE-2025-55753 and note the name of the software it affects. Then list the known CVEs for that software.",
       "expected_tools": [
@@ -6051,7 +6238,7 @@
       ]
     },
     {
-      "id": 176,
+      "id": 181,
       "kind": "pair",
       "query": "Find the official CPE identifier for Apache HTTP Server 2.4.65. Then count how many hosts in Shodan match that CPE identifier.",
       "expected_tools": [
@@ -6088,7 +6275,7 @@
       ]
     },
     {
-      "id": 177,
+      "id": 182,
       "kind": "pair",
       "query": "Find the official CPE identifier for Apache HTTP Server 2.4.65. Then list the known CVEs for that CPE identifier.",
       "expected_tools": [
@@ -6124,7 +6311,7 @@
       ]
     },
     {
-      "id": 178,
+      "id": 183,
       "kind": "pair",
       "query": "List the known CVEs for Apache HTTP Server 2.4.65 and pick the one with the highest EPSS score. Then give that CVE's severity and whether it is on CISA's Known Exploited Vulnerabilities list.",
       "expected_tools": [
@@ -6161,7 +6348,7 @@
       ]
     },
     {
-      "id": 179,
+      "id": 184,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then look up the WHOIS record for that hostname's domain.",
       "expected_tools": [
@@ -6180,7 +6367,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "<a site's hostname from step 1>"
+            "domain": "<a site's domain from step 1>"
           },
           "input_from_previous": "HOST"
         }
@@ -6198,7 +6385,7 @@
       ]
     },
     {
-      "id": 180,
+      "id": 185,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -6235,7 +6422,7 @@
       ]
     },
     {
-      "id": 181,
+      "id": 186,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then resolve that hostname to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -6274,7 +6461,7 @@
       ]
     },
     {
-      "id": 182,
+      "id": 187,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then list the subdomains Shodan knows for that hostname's domain.",
       "expected_tools": [
@@ -6293,7 +6480,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "<a site's hostname from step 1>"
+            "domain": "<a site's domain from step 1>"
           },
           "input_from_previous": "HOST"
         }
@@ -6311,7 +6498,7 @@
       ]
     },
     {
-      "id": 183,
+      "id": 188,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then show that hostname's SSL certificate.",
       "expected_tools": [
@@ -6348,7 +6535,7 @@
       ]
     },
     {
-      "id": 184,
+      "id": 189,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then find where that hostname's server is physically located.",
       "expected_tools": [
@@ -6385,7 +6572,7 @@
       ]
     },
     {
-      "id": 185,
+      "id": 190,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then check that hostname against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -6422,7 +6609,7 @@
       ]
     },
     {
-      "id": 186,
+      "id": 191,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then get that hostname's domain reputation score.",
       "expected_tools": [
@@ -6459,7 +6646,7 @@
       ]
     },
     {
-      "id": 187,
+      "id": 192,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then give the content category of that hostname's website.",
       "expected_tools": [
@@ -6496,7 +6683,7 @@
       ]
     },
     {
-      "id": 188,
+      "id": 193,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then use BuiltWith's free lookup to count the technology types on that hostname.",
       "expected_tools": [
@@ -6533,7 +6720,7 @@
       ]
     },
     {
-      "id": 189,
+      "id": 194,
       "kind": "pair",
       "query": "Search social media sites for accounts that use the username sreyes and note the website of one match. Then count how many hosts in Shodan have that hostname.",
       "expected_tools": [
@@ -6570,7 +6757,7 @@
       ]
     },
     {
-      "id": 190,
+      "id": 195,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then look up the WHOIS record for that domain.",
       "expected_tools": [
@@ -6608,7 +6795,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 191,
+      "id": 196,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then use WhoisXML's DNS lookup to get that domain's DNS records.",
       "expected_tools": [
@@ -6646,7 +6833,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 192,
+      "id": 197,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then resolve that domain to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -6686,9 +6873,9 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 193,
+      "id": 198,
       "kind": "pair",
-      "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then list the subdomains Shodan knows for that domain's domain.",
+      "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then list the subdomains Shodan knows for that domain.",
       "expected_tools": [
         "email_breach_check",
         "shodan_domain_info"
@@ -6724,7 +6911,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 194,
+      "id": 199,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then show that domain's SSL certificate.",
       "expected_tools": [
@@ -6762,7 +6949,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 195,
+      "id": 200,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then find where that domain's server is physically located.",
       "expected_tools": [
@@ -6800,7 +6987,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 196,
+      "id": 201,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then check that domain against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -6838,7 +7025,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 197,
+      "id": 202,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then get that domain's domain reputation score.",
       "expected_tools": [
@@ -6876,7 +7063,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 198,
+      "id": 203,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then give the content category of that domain's website.",
       "expected_tools": [
@@ -6914,7 +7101,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 199,
+      "id": 204,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then use BuiltWith's free lookup to count the technology types on that domain.",
       "expected_tools": [
@@ -6952,7 +7139,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 200,
+      "id": 205,
       "kind": "pair",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then count how many hosts in Shodan have a hostname under that domain.",
       "expected_tools": [
@@ -6990,7 +7177,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 201,
+      "id": 206,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then look up the WHOIS record for that hostname's domain.",
       "expected_tools": [
@@ -7009,7 +7196,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "tidegatesolutions-com.mail.protection.outlook.com"
+            "domain": "outlook.com"
           },
           "input_from_previous": "HOST"
         }
@@ -7027,7 +7214,7 @@
       ]
     },
     {
-      "id": 202,
+      "id": 207,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -7064,7 +7251,7 @@
       ]
     },
     {
-      "id": 203,
+      "id": 208,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then resolve that hostname to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -7103,7 +7290,7 @@
       ]
     },
     {
-      "id": 204,
+      "id": 209,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then list the subdomains Shodan knows for that hostname's domain.",
       "expected_tools": [
@@ -7122,7 +7309,7 @@
           "tool": "shodan_domain_info",
           "server": "shodan",
           "args": {
-            "domain": "tidegatesolutions-com.mail.protection.outlook.com"
+            "domain": "outlook.com"
           },
           "input_from_previous": "HOST"
         }
@@ -7140,7 +7327,7 @@
       ]
     },
     {
-      "id": 205,
+      "id": 210,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then show that hostname's SSL certificate.",
       "expected_tools": [
@@ -7177,7 +7364,7 @@
       ]
     },
     {
-      "id": 206,
+      "id": 211,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then find where that hostname's server is physically located.",
       "expected_tools": [
@@ -7214,7 +7401,7 @@
       ]
     },
     {
-      "id": 207,
+      "id": 212,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then check that hostname against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -7251,7 +7438,7 @@
       ]
     },
     {
-      "id": 208,
+      "id": 213,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then get that hostname's domain reputation score.",
       "expected_tools": [
@@ -7288,7 +7475,7 @@
       ]
     },
     {
-      "id": 209,
+      "id": 214,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then give the content category of that hostname's website.",
       "expected_tools": [
@@ -7325,7 +7512,7 @@
       ]
     },
     {
-      "id": 210,
+      "id": 215,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then use BuiltWith's free lookup to count the technology types on that hostname.",
       "expected_tools": [
@@ -7362,7 +7549,7 @@
       ]
     },
     {
-      "id": 211,
+      "id": 216,
       "kind": "pair",
       "query": "Verify whether the mailbox sreyes@tidegatesolutions.com exists and note its mail (MX) server. Then count how many hosts in Shodan have that hostname.",
       "expected_tools": [
@@ -7399,7 +7586,7 @@
       ]
     },
     {
-      "id": 212,
+      "id": 217,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then look up the WHOIS record for that domain.",
       "expected_tools": [
@@ -7436,7 +7623,7 @@
       ]
     },
     {
-      "id": 213,
+      "id": 218,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then use WhoisXML's DNS lookup to get that domain's DNS records.",
       "expected_tools": [
@@ -7473,7 +7660,7 @@
       ]
     },
     {
-      "id": 214,
+      "id": 219,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then resolve that domain to an IP address with Shodan's DNS lookup.",
       "expected_tools": [
@@ -7512,9 +7699,9 @@
       ]
     },
     {
-      "id": 215,
+      "id": 220,
       "kind": "pair",
-      "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then list the subdomains Shodan knows for that domain's domain.",
+      "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then list the subdomains Shodan knows for that domain.",
       "expected_tools": [
         "disposable_email_check",
         "shodan_domain_info"
@@ -7549,7 +7736,7 @@
       ]
     },
     {
-      "id": 216,
+      "id": 221,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then show that domain's SSL certificate.",
       "expected_tools": [
@@ -7586,7 +7773,7 @@
       ]
     },
     {
-      "id": 217,
+      "id": 222,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then find where that domain's server is physically located.",
       "expected_tools": [
@@ -7623,7 +7810,7 @@
       ]
     },
     {
-      "id": 218,
+      "id": 223,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then check that domain against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -7660,7 +7847,7 @@
       ]
     },
     {
-      "id": 219,
+      "id": 224,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then get that domain's domain reputation score.",
       "expected_tools": [
@@ -7697,7 +7884,7 @@
       ]
     },
     {
-      "id": 220,
+      "id": 225,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then give the content category of that domain's website.",
       "expected_tools": [
@@ -7734,7 +7921,7 @@
       ]
     },
     {
-      "id": 221,
+      "id": 226,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then use BuiltWith's free lookup to count the technology types on that domain.",
       "expected_tools": [
@@ -7771,7 +7958,7 @@
       ]
     },
     {
-      "id": 222,
+      "id": 227,
       "kind": "pair",
       "query": "Check whether sreyes@tidegatesolutions.com is a disposable email address and note the domain it uses. Then count how many hosts in Shodan have a hostname under that domain.",
       "expected_tools": [
@@ -7808,7 +7995,7 @@
       ]
     },
     {
-      "id": 223,
+      "id": 228,
       "kind": "triple",
       "query": "Use WhoisXML's DNS lookup to find the IP address tidegatesolutions.com points to. Then look that IP address up in Shodan for open ports and software, and note the software and version. Finally, list the known CVEs for that software.",
       "expected_tools": [
@@ -7859,7 +8046,7 @@
       ]
     },
     {
-      "id": 224,
+      "id": 229,
       "kind": "triple",
       "query": "Resolve tidegatesolutions.com to an IP address with Shodan's DNS lookup. Then look that IP address up in Shodan for open ports and software, and pick one CVE. Finally, give that CVE's severity and whether it is on CISA's Known Exploited Vulnerabilities list.",
       "expected_tools": [
@@ -7912,7 +8099,7 @@
       ]
     },
     {
-      "id": 225,
+      "id": 230,
       "kind": "triple",
       "query": "Look up 100.48.141.159 in Shodan and find the web server software and version it runs. Then find the official CPE identifier for that software, and note one CPE identifier. Finally, list the known CVEs for that CPE identifier.",
       "expected_tools": [
@@ -7962,7 +8149,7 @@
       ]
     },
     {
-      "id": 226,
+      "id": 231,
       "kind": "triple",
       "query": "Look up 100.48.141.159 in Shodan and find the web server software and version it runs. Then list the known CVEs for that software, and pick one CVE. Finally, give that CVE's severity and whether it is on CISA's Known Exploited Vulnerabilities list.",
       "expected_tools": [
@@ -8012,7 +8199,7 @@
       ]
     },
     {
-      "id": 227,
+      "id": 232,
       "kind": "triple",
       "query": "Look up CVE-2025-55753 and note the name of the software it affects. Then find the official CPE identifier for that software, and note one CPE identifier. Finally, list the known CVEs for that CPE identifier.",
       "expected_tools": [
@@ -8062,7 +8249,7 @@
       ]
     },
     {
-      "id": 228,
+      "id": 233,
       "kind": "triple",
       "query": "Search Shodan for hosts whose page title is 'Tidegate Solutions - Purity in Process' and note the web server software and version. Then find the official CPE identifier for that software, and note one CPE identifier. Finally, list the known CVEs for that CPE identifier.",
       "expected_tools": [
@@ -8113,7 +8300,7 @@
       ]
     },
     {
-      "id": 229,
+      "id": 234,
       "kind": "triple",
       "query": "List the subdomains Shodan knows for tidegatesolutions.com and pick www.tidegatesolutions.com. Then use WhoisXML's DNS lookup to get that hostname's DNS records, and note the IP address. Finally, check that IP address against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -8164,7 +8351,7 @@
       ]
     },
     {
-      "id": 230,
+      "id": 235,
       "kind": "triple",
       "query": "Find the hostname 100.48.141.159 reverse-resolves to. Then resolve that hostname to an IP address with Shodan's DNS lookup, and note the IP address. Finally, look that IP address up in Shodan for open ports and software.",
       "expected_tools": [
@@ -8219,7 +8406,7 @@
       ]
     },
     {
-      "id": 231,
+      "id": 236,
       "kind": "triple",
       "query": "Use WhoisXML's DNS lookup to find the IP address tidegatesolutions.com points to. Then find who owns the IP range that contains that IP address, and note the ASN. Finally, count how many hosts Shodan sees on that ASN.",
       "expected_tools": [
@@ -8269,7 +8456,7 @@
       ]
     },
     {
-      "id": 232,
+      "id": 237,
       "kind": "triple",
       "query": "Resolve tidegatesolutions.com to an IP address with Shodan's DNS lookup. Then find who owns the IP range that contains that IP address, and note the ASN. Finally, search Shodan for hosts on that ASN with 'Tidegate Solutions' in their page title.",
       "expected_tools": [
@@ -8321,7 +8508,7 @@
       ]
     },
     {
-      "id": 233,
+      "id": 238,
       "kind": "triple",
       "query": "List the subdomains Shodan knows for tidegatesolutions.com and pick www.tidegatesolutions.com. Then use WhoisXML's DNS lookup to get that hostname's DNS records, and note the IP address. Finally, find the hostname that IP address reverse-resolves to.",
       "expected_tools": [
@@ -8373,7 +8560,7 @@
       ]
     },
     {
-      "id": 234,
+      "id": 239,
       "kind": "triple",
       "query": "Look up 100.48.141.159 in Shodan and note its ASN. Then search Shodan for hosts on that ASN with 'Tidegate Solutions' in their page title, and note the IP address. Finally, find the hostname that IP address reverse-resolves to.",
       "expected_tools": [
@@ -8426,7 +8613,7 @@
       ]
     },
     {
-      "id": 235,
+      "id": 240,
       "kind": "triple",
       "query": "Check whether 100.48.141.159 is a VPN, proxy or hosting address, and note its ASN. Then list the network blocks registered to that ASN (first 10), and note the organization. Finally, count how many hosts Shodan sees for that organization.",
       "expected_tools": [
@@ -8477,7 +8664,7 @@
       ]
     },
     {
-      "id": 236,
+      "id": 241,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and take one of its nameservers. Then use WhoisXML's DNS lookup to get that hostname's DNS records, and note the IP address. Finally, find who owns the IP range that contains that IP address.",
       "expected_tools": [
@@ -8527,7 +8714,7 @@
       ]
     },
     {
-      "id": 237,
+      "id": 242,
       "kind": "triple",
       "query": "Resolve tidegatesolutions.com to an IP address with Shodan's DNS lookup. Then find where that IP address is physically located, and note the ASN. Finally, list the network blocks registered to that ASN (first 10).",
       "expected_tools": [
@@ -8581,7 +8768,7 @@
       ]
     },
     {
-      "id": 238,
+      "id": 243,
       "kind": "triple",
       "query": "List the subdomains Shodan knows for tidegatesolutions.com and pick www.tidegatesolutions.com. Then resolve that hostname to an IP address with Shodan's DNS lookup, and note the IP address. Finally, find where that IP address is physically located.",
       "expected_tools": [
@@ -8634,7 +8821,7 @@
       ]
     },
     {
-      "id": 239,
+      "id": 244,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and find the registrant organization's name. Then search Shodan for hosts with that name in their page title, and note the IP address. Finally, find where that IP address is physically located.",
       "expected_tools": [
@@ -8685,7 +8872,7 @@
       ]
     },
     {
-      "id": 240,
+      "id": 245,
       "kind": "triple",
       "query": "Use WhoisXML's DNS lookup to find the IP address tidegatesolutions.com points to. Then look that IP address up in Shodan for open ports and software, and note the software and version. Finally, check on BuiltWith trends how widely that software is used.",
       "expected_tools": [
@@ -8737,7 +8924,7 @@
       ]
     },
     {
-      "id": 241,
+      "id": 246,
       "kind": "triple",
       "query": "Use WhoisXML's DNS lookup to find tidegatesolutions.com's mail (MX) server. Then look up the WHOIS record for that hostname's domain, and note the hostname. Finally, use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -8757,7 +8944,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "tidegatesolutions-com.mail.protection.outlook.com"
+            "domain": "outlook.com"
           },
           "input_from_previous": "HOST"
         },
@@ -8787,7 +8974,7 @@
       ]
     },
     {
-      "id": 242,
+      "id": 247,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and take one of its nameservers. Then resolve that hostname to an IP address with Shodan's DNS lookup, and note the IP address. Finally, find who owns the IP range that contains that IP address.",
       "expected_tools": [
@@ -8839,7 +9026,7 @@
       ]
     },
     {
-      "id": 243,
+      "id": 248,
       "kind": "triple",
       "query": "Look up 100.48.141.159 in Shodan and find the web server software and version it runs. Then check on BuiltWith trends how widely that software is used, and note the hostname. Finally, look up the WHOIS record for that hostname's domain.",
       "expected_tools": [
@@ -8867,7 +9054,7 @@
           "tool": "whois",
           "server": "whoisxml",
           "args": {
-            "domain": "<from step 2>"
+            "domain": "<the domain of the hostname from step 2>"
           },
           "input_from_previous": "HOST"
         }
@@ -8891,7 +9078,7 @@
       ]
     },
     {
-      "id": 244,
+      "id": 249,
       "kind": "triple",
       "query": "Count the hosts in Shodan whose page title contains 'Tidegate Solutions', broken down by domain, and note the top one. Then look up the WHOIS record for that domain, and note the hostname. Finally, use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -8942,7 +9129,7 @@
       ]
     },
     {
-      "id": 245,
+      "id": 250,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and take the username part of the registrant's email address. Then search social media sites for accounts that use that username, and note the hostname. Finally, check that hostname against malware, phishing and spam feeds.",
       "expected_tools": [
@@ -8994,7 +9181,7 @@
       ]
     },
     {
-      "id": 246,
+      "id": 251,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and find the registrant's email address. Then verify whether that mailbox actually exists, and note the hostname. Finally, use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -9045,7 +9232,7 @@
       ]
     },
     {
-      "id": 247,
+      "id": 252,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and find the registrant's email address. Then check whether that email address is a disposable (throwaway) address, and note the domain. Finally, get that domain's domain reputation score.",
       "expected_tools": [
@@ -9097,7 +9284,7 @@
       ]
     },
     {
-      "id": 248,
+      "id": 253,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and take one of its nameservers. Then find where that hostname's server is physically located, and note the IP address. Finally, count Shodan's results for that IP address, broken down by port.",
       "expected_tools": [
@@ -9149,7 +9336,7 @@
       ]
     },
     {
-      "id": 249,
+      "id": 254,
       "kind": "triple",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then look up the WHOIS record for that domain, and note the hostname. Finally, use WhoisXML's DNS lookup to get that hostname's DNS records.",
       "expected_tools": [
@@ -9201,7 +9388,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 250,
+      "id": 255,
       "kind": "triple",
       "query": "Check which data breaches test@example.com appears in and note the domain of one breached company. Then use WhoisXML's DNS lookup to get that domain's DNS records, and note the IP address. Finally, look that IP address up in Shodan for open ports and software.",
       "expected_tools": [
@@ -9254,7 +9441,7 @@
       "needs_code_change": "email_breach_check must include each breach's `domain` field (XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)"
     },
     {
-      "id": 251,
+      "id": 256,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and find the registrant's email address. Then check whether that email address is a disposable (throwaway) address, and note the domain. Finally, give the content category of that domain's website.",
       "expected_tools": [
@@ -9306,7 +9493,7 @@
       ]
     },
     {
-      "id": 252,
+      "id": 257,
       "kind": "triple",
       "query": "Look up the WHOIS record for tidegatesolutions.com and take the username part of the registrant's email address. Then search social media sites for accounts that use that username, and note the hostname. Finally, give the content category of that hostname's website.",
       "expected_tools": [
@@ -9556,16 +9743,6 @@
     },
     {
       "first": "ssl_certificates",
-      "second": "shodan_dns_lookup",
-      "reason": "www.pay.tidegatesolutions.com (the certificate's other name) has no DNS record, so there is no site to check"
-    },
-    {
-      "first": "ssl_certificates",
-      "second": "ipgeolocation",
-      "reason": "www.pay.tidegatesolutions.com (the certificate's other name) has no DNS record, so there is no site to check"
-    },
-    {
-      "first": "ssl_certificates",
       "second": "ip_netblocks",
       "reason": "ssl_certificates gives HOST; ip_netblocks takes only ASN, IP, ORG"
     },
@@ -9573,21 +9750,6 @@
       "first": "ssl_certificates",
       "second": "vpn_proxy_detection",
       "reason": "ssl_certificates gives HOST; vpn_proxy_detection takes only IP"
-    },
-    {
-      "first": "ssl_certificates",
-      "second": "domain_reputation",
-      "reason": "www.pay.tidegatesolutions.com (the certificate's other name) has no DNS record, so there is no site to check"
-    },
-    {
-      "first": "ssl_certificates",
-      "second": "categorization",
-      "reason": "www.pay.tidegatesolutions.com (the certificate's other name) has no DNS record, so there is no site to check"
-    },
-    {
-      "first": "ssl_certificates",
-      "second": "free-api",
-      "reason": "www.pay.tidegatesolutions.com (the certificate's other name) has no DNS record, so there is no site to check"
     },
     {
       "first": "ssl_certificates",

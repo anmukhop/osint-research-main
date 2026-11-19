@@ -66,8 +66,10 @@ GIVES = {
         "IP": (f"Get the DNS records Shodan has for {DOMAIN} and take the IP address of its A record", IP, NOV11),
     },
     "ssl_certificates": {
-        "HOST": (f"Read the SSL certificate for pay.{DOMAIN} and take the other hostname it covers", f"www.pay.{DOMAIN}",
-                 "certificate log (crt.sh) on Nov 11, 2026"),
+        # The certificate also names www.pay.{DOMAIN}, but that name has no DNS record, so chains
+        # take the name it was issued for (its common name), which resolves (CNAME to GoDaddy paylinks).
+        "HOST": (f"Read the SSL certificate for pay.{DOMAIN} and note the hostname it was issued for", f"pay.{DOMAIN}",
+                 "certificate log (crt.sh) on Nov 11 and 13, 2026"),
     },
     "ipgeolocation": {
         "ASN": (f"Geolocate {IP} and note its ASN", "AS14618", NOV5),
@@ -142,12 +144,21 @@ GIVES = {
 def h(key, wrap=False):
     return lambda v: {key: [v] if wrap else v}
 
+
+def domain_of(host):
+    """Registered domain of a hostname (last two labels; enough for every host in this set).
+    A placeholder becomes the matching domain placeholder."""
+    if host.startswith("<"):
+        return host.replace("hostname", "domain") if "hostname" in host else f"<the domain of the hostname {host[1:-1]}>"
+    return ".".join(host.split(".")[-2:])
+
 TAKES = {
     "whois": {"DOMAIN": ("look up the WHOIS record for that domain", h("domain")),
-              "HOST": ("look up the WHOIS record for that hostname's domain", h("domain"))},
+              "HOST": ("look up the WHOIS record for that hostname's domain", lambda v: {"domain": domain_of(v)})},
     "dns_lookup": {t: (f"use WhoisXML's DNS lookup to get {NOUN[t]}'s DNS records", h("domain_name")) for t in ("HOST", "DOMAIN")},
     "shodan_dns_lookup": {t: (f"resolve {NOUN[t]} to an IP address with Shodan's DNS lookup", h("hostnames", True)) for t in ("HOST", "DOMAIN")},
-    "shodan_domain_info": {t: (f"list the subdomains Shodan knows for {NOUN[t]}'s domain", h("domain")) for t in ("HOST", "DOMAIN")},
+    "shodan_domain_info": {"HOST": ("list the subdomains Shodan knows for that hostname's domain", lambda v: {"domain": domain_of(v)}),
+                           "DOMAIN": ("list the subdomains Shodan knows for that domain", h("domain"))},
     "ssl_certificates": {t: (f"show {NOUN[t]}'s SSL certificate", h("domain")) for t in ("HOST", "DOMAIN")},
     "ipgeolocation": {"IP": ("find where that IP address is physically located", h("ip_address")),
                       "EMAIL": ("geolocate that email address", h("email_address")),
@@ -243,10 +254,9 @@ NEEDS_CHANGE = {
                                       "(XposedOrNot returns it; in micah-local-development since Nov 11, 2026, commit a18b933)",
 }
 
-# Links that type-match but don't work: (A, B) -> reason.
-_NO_DNS = f"www.pay.{DOMAIN} (the certificate's other name) has no DNS record, so there is no site to check"
-EXCLUDE = {("ssl_certificates", b): _NO_DNS for b in
-           ("categorization", "free-api", "domain_reputation", "ipgeolocation", "shodan_dns_lookup", "ssl_certificates")}
+# Links that type-match but don't work: (A, B) -> reason. None at present: the ssl_certificates
+# pairs were excluded while its hand-off was www.pay.{DOMAIN}, which has no DNS record (fixed Nov 13, 2026).
+EXCLUDE = {}
 
 # Tools that return nothing another tool can take.
 DEAD_END = {
@@ -388,7 +398,7 @@ if __name__ == "__main__":
     tests, excluded = build()
     out = {
         "description": "OSINT Research Platform - Benchmark v2 (every agent tool, every chaining pair, three-tool chains)",
-        "version": "2.1", "created": "2026-11-11",
+        "version": "2.2", "created": "2026-11-11", "updated": "2026-11-13",
         "targets": {"main": {"domain": DOMAIN, "ip": IP, "email": EMAIL, "username": "sreyes"},
                     "vendors": "Tidegate's own vendors as its records name them (Microsoft mail, GoDaddy nameservers/payments, Amazon hosting)",
                     "breach_test_email": TEST_EMAIL,
